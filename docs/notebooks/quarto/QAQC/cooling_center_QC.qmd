@@ -1,0 +1,165 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+```{python}
+import os
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import shapely.geometry
+import psycopg2
+from sqlalchemy import create_engine
+import geoalchemy2
+import requests
+import zipfile
+
+# Set working directory
+working_directory = r"./data"
+os.chdir(working_directory)
+```
+
+```{python}
+import os
+#database connection parameters
+db_params = {
+    "host": os.environ["PGHOST"],
+    "port": "5432",
+    "dbname": os.environ["PGDATABASE"],
+    "user": os.environ["PGUSER"],
+    "password": os.environ["PGPASSWORD"]
+}
+
+#db connection string
+db_string = f'postgresql+psycopg2://{db_params["user"]}:{db_params["password"]}@{db_params["host"]}:{db_params["port"]}/{db_params["dbname"]}'
+engine = create_engine(db_string)
+```
+
+```{python}
+#define cooling center table variable and load
+
+cooling_options = "cooling_options"
+cooling_options_df = pd.read_sql(f"SELECT * FROM {cooling_options}", engine)
+```
+
+```{python}
+#visualize table
+print(cooling_options_df)
+```
+
+```{python}
+#view specifically 'fee' and 'inhennepin' fields
+print(cooling_options_df[['fee','inhennepin']])
+```
+
+```{python}
+#remove any cooling center where fee attribute = yes and inhennepin = no
+cooling_options_df_filtered = cooling_options_df[(cooling_options_df["inhennepin"] != "No") & (cooling_options_df["fee"] != "Yes")]
+```
+
+```{python}
+#visualize filtered table
+print(cooling_options_df_filtered)
+```
+
+```{python}
+#double check filtered columns
+print(cooling_options_df_filtered[['fee','inhennepin']])
+```
+
+```{python}
+#make the cooling options dataframe a geodataframe with geopandas
+cooling_options_gdf = gpd.GeoDataFrame(cooling_options_df_filtered, geometry=gpd.points_from_xy(cooling_options_df_filtered["longitude"], cooling_options_df_filtered["latitude"]))
+
+cooling_options_gdf=cooling_options_gdf[cooling_options_gdf.latitude!=0]
+
+cooling_options_gdf
+```
+
+```{python}
+#double check by verifying all cooling center points are with hennepin county polygon
+
+#download mn counties shapefile
+url = "https://resources.gisdata.mn.gov/pub/gdrs/data/pub/us_mn_state_dnr/bdry_counties_in_minnesota/shp_bdry_counties_in_minnesota.zip"
+response = requests.get(url)
+with open("mn_county.zip", "wb") as f:
+    f.write(response.content)
+
+# Extract the GeoPackage file
+with zipfile.ZipFile("mn_county.zip", "r") as zip_ref:
+    zip_ref.extractall("mn_county")
+```
+
+```{python}
+#load the downloaded shapefile with geopandas and print to view
+mn_county_path = r"./data/mn_county/mn_county_boundaries_500.shp"
+mn_county = gpd.read_file(mn_county_path)
+
+#only need county name
+print(mn_county['CTY_NAME'])
+```
+
+```{python}
+#filter to just be hennepin county
+hennepin_county = mn_county[(mn_county["CTY_NAME"] == "Hennepin")]
+print(hennepin_county)
+hennepin_county.explore()
+```
+
+```{python}
+# Check CRS of cooling centers and hennepin county 
+print(cooling_options_gdf.crs)  
+print(hennepin_county.crs) 
+```
+
+```{python}
+#to check if all cooling centers are within hennepin county, first check both df using the same CRS
+
+#set cooling_centers_gdf CRS
+cooling_options_gdf = cooling_options_gdf.set_crs(epsg=4326,allow_override=True)  # Assign WGS 84 first
+cooling_options_gdf = cooling_options_gdf.to_crs(epsg=26915)  # Convert to match Hennepin County
+
+# hennepin_county = hennepin_county.to_crs(epsg=32615)  #UTM 15N
+# cooling_options = cooling_options_gdf.to_crs(hennepin_county.crs)
+```
+
+```{python}
+print(cooling_options_gdf.crs) 
+print(cooling_options_gdf.total_bounds)
+```
+
+```{python}
+cooling_options_gdf
+```
+
+```{python}
+#run check to see if points are inside hennepin
+cooling_options_gdf["inside_hennepin"] = cooling_options_gdf.geometry.within(hennepin_county.geometry.iloc[0])
+
+inside_count = cooling_options_gdf["inside_hennepin"].sum()
+total_count = len(cooling_options_gdf)
+
+print(f"{inside_count} out of {total_count} points are within Hennepin County.")
+```
+
+```{python}
+import os
+#replace existing cooling options table in database with the now filtered one
+
+db_connection = os.environ["DATABASE_URL"]
+engine = create_engine(db_connection)
+
+cooling_options_gdf.to_postgis(name="cooling_options", con=engine, if_exists="replace", index=False)
+     
+```
+

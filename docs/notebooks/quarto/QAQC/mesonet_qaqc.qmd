@@ -1,0 +1,121 @@
+---
+title: To shape
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: Python 3
+    name: python3
+    language: python
+---
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/}
+!pip install geoalchemy2
+```
+
+```{python}
+import requests
+import json
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+```
+
+```{python}
+import os
+synoptic_token = os.environ["SYNOPTIC_API_TOKEN"]
+#| colab: {base_uri: https://localhost:8080/, height: 1000}
+year = 2024
+month = 8
+station_samples = []
+for i in range(1, 32):
+  day_of_month = i
+  startDate = datetime(year, month, day_of_month, 19).strftime('%Y%m%d%H%M')
+  endDate = datetime(year, month, day_of_month, 21).strftime('%Y%m%d%H%M')
+  link = f'https://api.synopticdata.com/v2/stations/timeseries?&token={synoptic_token}&obtimezone=utc&units=temp|f&network=259&output=json&vars=air_temp&start={startDate}&end={endDate}'
+
+  response = requests.get(link).json()
+
+
+  #assert len(response['STATION'])==26, f'Number of stations is {len(response["STATION"])}'
+
+  print(len(response["STATION"]))
+
+  for j in range(len(response['STATION'])):
+    station = response['STATION'][j]
+    name, stid = station['NAME'], station['STID']
+    lat, lon = station['LATITUDE'], station['LONGITUDE']
+
+    temp_values = station['OBSERVATIONS']['air_temp_set_1']
+
+    #Check if all values are the same
+    if all(val == temp_values[0] for val in temp_values):
+          temp = np.nan  # Set to NaN if stuck
+          print("I'm here")
+    else:
+        temp = round(np.mean(temp_values), 4)
+    station_samples.append([startDate, endDate, name, stid, lat, lon, temp])
+  print(f'Day {i} is derived')
+df = pd.DataFrame(dict(zip(['startDate', 'endDate', 'name', 'stid', 'lat', 'lon', 't2m'], np.array(station_samples).T)))
+df
+```
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 1000}
+D = df.copy()
+D['startDate'] = D['startDate'].astype(str).str[:-4]
+
+locations = D[['stid', 'name', 'lat', 'lon']].drop_duplicates()
+
+pivot_df = D.pivot(index='stid', columns='startDate', values='t2m').reset_index()
+
+pivot_df
+
+for col in pivot_df.columns[1:]:
+    pivot_df[col] = pd.to_numeric(pivot_df[col], errors='coerce')
+
+merged_df = pd.merge(pivot_df, locations, on='stid')
+merged_df
+```
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 1000}
+submerged = merged_df.loc[:,"20240801":"20240831"]
+merged_df.loc[:,"20240801":"20240831"] = submerged[(submerged>=(submerged-3*submerged.std()))&(submerged<=(submerged+3*submerged.std()))]
+merged_df['geometry'] = merged_df.apply(lambda x: Point(x['lon'], x['lat']), axis=1)
+merged_df = gpd.GeoDataFrame(merged_df).set_crs(epsg=4326, inplace=True)
+merged_df
+```
+
+```{python}
+import os
+from sqlalchemy import create_engine
+
+db_connection = os.environ["DATABASE_URL"]
+engine = create_engine(db_connection)
+
+merged_df.to_postgis(name="mesonet", con=engine, if_exists="replace", index=False)
+```
+
+
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/}
+df['geometry'] = df.apply(lambda x: Point(x['lon'], x['lat']), axis=1)
+gdf = gpd.GeoDataFrame(df)
+for idx, group in gdf.groupby('startDate'):
+  gdf.to_file(f'./shapes/meso_{idx}.shp', driver="ESRI Shapefile")
+```
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/}
+gdf.to_file('meso.shp', driver="ESRI Shapefile")
+```

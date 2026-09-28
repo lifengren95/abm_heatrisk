@@ -1,0 +1,405 @@
+---
+title: Setup
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: rcp_heat
+    language: python
+    name: python3
+---
+
+
+
+```{python}
+import time
+import os
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+from datetime import datetime
+import warnings
+from pysal.explore import esda
+from pysal.lib import weights
+from libpysal.weights import KNN
+from esda.moran import Moran
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.patches as mpatches
+import seaborn as sns
+
+from src import Parcel, HeatEvent
+
+# Suppress all warnings
+warnings.filterwarnings('ignore')
+# Start time
+start_time = time.time()
+```
+
+```{python}
+# Output directory
+output_dir = r"./results/multiple_models_results"
+os.makedirs(output_dir, exist_ok=True)
+os.chdir(output_dir)
+print(f"Current working directory: {os.getcwd()}")
+```
+
+# Functions for different model types
+
+## Geometric mean model
+
+```{python}
+# Geometric mean model
+def run_geometric_mean_model(temp_raster_fp=None, temperature=95):
+    """Run model with geometric mean probability calculation"""
+    # Temporarily modify the Parcel class's move2cooling_proba method
+    original_method = Parcel.move2cooling_proba
+    
+    def geometric_mean_proba(self, temp_thr=70, age_thr=70, income_thr=70000):
+        """Geometric mean probability calculation"""
+        temp = self.attributes['temperature']
+        age = self.attributes.get('total_age', 0)
+        income = self.attributes.get('medianhhi', 0)
+        cooling_dist = self.cooling_distance
+        ac = self.attributes.get('AC', 0)
+        
+        # Calculate individual probabilities
+        temp_proba = max(0.1, np.log(temp - temp_thr)/np.log(temp))
+        age_proba = max(0.1, 1 - 1 / (1 + np.exp(0.1*(age_thr-age))))
+        income_proba = max(0.1, 1 / (1 + np.exp((income/10000 - income_thr/10000) * 0.5)))
+        cooling_proba = max(0.1, 1 / (1 + np.exp((cooling_dist - 1609) * 0.001)))
+        ac_proba = max(0.1, ac)
+        
+        # Geometric mean calculation
+        final_proba = (temp_proba * age_proba * income_proba * cooling_proba * ac_proba) ** (1/5)
+        return final_proba
+    
+    # Replace the method
+    Parcel.move2cooling_proba = geometric_mean_proba
+    
+    try:
+        # Run model with this probability calculation
+        print("Running model with geometric mean probability calculation...")
+        heat_event = HeatEvent(temperature)
+        
+        # Pass the temperature and/or raster file
+        heat_event.run_simulation(temp_raster=temp_raster_fp, temperature=temperature)
+            
+        # Add model type to the event object for reference
+        heat_event.model_type = "geometric_mean"
+        
+        # Process results
+        heat_event.process_results()
+        
+        # Create a directory for results
+        output_folder = f'./results/{datetime.now().strftime("%Y%m%d_%H%M%S")}_geometric_mean'
+        os.makedirs(output_folder, exist_ok=True)
+        heat_event.gdf.to_file(os.path.join(output_folder, f'results_geometric_mean.shp'), driver='ESRI Shapefile')
+        
+        # Visualize if needed
+        heat_event.visualize_results()
+        
+        return heat_event
+    
+    finally:
+        # Restore the original method
+        Parcel.move2cooling_proba = original_method
+```
+
+## Weighted sum model
+
+```{python}
+def run_weighted_sum_model(temp_raster_fp=None, temperature=95):
+    """Run model with weighted sum probability calculation"""
+    # Temporarily modify the Parcel class's move2cooling_proba method
+    original_method = Parcel.move2cooling_proba
+    
+    def weighted_sum_proba(self, temp_thr=70, age_thr=70, income_thr=70000):
+        """Weighted sum probability calculation"""
+        temp = self.attributes['temperature']
+        age = self.attributes.get('total_age', 0)
+        income = self.attributes.get('medianhhi', 0)
+        cooling_dist = self.cooling_distance
+        ac = self.attributes.get('AC', 0)
+        
+        # Calculate individual probabilities
+        temp_proba = max(0.1, np.log(temp - temp_thr)/np.log(temp))
+        age_proba = max(0.1, 1 - 1 / (1 + np.exp(0.1*(age_thr-age))))
+        income_proba = max(0.1, 1 / (1 + np.exp((income/10000 - income_thr/10000) * 0.5)))
+        cooling_proba = max(0.1, 1 / (1 + np.exp((cooling_dist - 1609) * 0.001)))
+        ac_proba = max(0.1, ac)
+        
+        # Weighted sum calculation
+        temp_weight = 0.35
+        age_weight = 0.05
+        income_weight = 0.15
+        cooling_weight = 0.2
+        ac_weight = 0.25
+        total_weight = temp_weight + age_weight + income_weight + cooling_weight + ac_weight
+        
+        final_proba = (temp_weight*temp_proba + age_weight*age_proba + 
+                      income_weight*income_proba + cooling_weight*cooling_proba + 
+                      ac_weight*ac_proba) / total_weight
+        return final_proba
+    
+    # Replace the method
+    Parcel.move2cooling_proba = weighted_sum_proba
+    
+    try:
+        # Run model with this probability calculation
+        print("Running model with weighted sum probability calculation...")
+        heat_event = HeatEvent(temperature)
+        
+        # Pass the temperature and/or raster file
+        heat_event.run_simulation(temp_raster=temp_raster_fp, temperature=temperature)
+            
+        # Add model type to the event object for reference
+        heat_event.model_type = "weighted_sum"
+        
+        # IMPORTANT: Process results BEFORE trying to save the file
+        heat_event.process_results()
+        
+        # Now create output folder and save results
+        output_folder = f'./results/{datetime.now().strftime("%Y%m%d_%H%M%S")}_weighted_sum'
+        os.makedirs(output_folder, exist_ok=True)
+        heat_event.gdf.to_file(os.path.join(output_folder, f'results_weighted_sum.shp'), driver='ESRI Shapefile')
+        
+        # Visualize if needed
+        heat_event.visualize_results()
+        
+        return heat_event
+    
+    finally:
+        # Restore the original method
+        Parcel.move2cooling_proba = original_method
+```
+
+## Product (multiplication) model
+
+```{python}
+# Product (multiplication) model
+def run_simple_product_model(temp_raster_fp=None, temperature=95):
+    """Run model with simple product probability calculation"""
+    # Temporarily modify the Parcel class's move2cooling_proba method
+    original_method = Parcel.move2cooling_proba
+    
+    def simple_product_proba(self, temp_thr=70, age_thr=70, income_thr=70000):
+        """Simple product probability calculation"""
+        temp = self.attributes['temperature']
+        age = self.attributes.get('total_age', 0)
+        income = self.attributes.get('medianhhi', 0)
+        cooling_dist = self.cooling_distance
+        ac = self.attributes.get('AC', 0)
+        
+        # Calculate individual probabilities
+        temp_proba = max(0.1, np.log(temp - temp_thr)/np.log(temp))
+        age_proba = max(0.1, 1 - 1 / (1 + np.exp(0.1*(age_thr-age))))
+        income_proba = max(0.1, 1 / (1 + np.exp((income/10000 - income_thr/10000) * 0.5)))
+        cooling_proba = max(0.1, 1 / (1 + np.exp((cooling_dist - 1609) * 0.001)))
+        ac_proba = max(0.1, ac)
+        
+        # Simple product calculation
+        final_proba = temp_proba * age_proba * income_proba * cooling_proba * ac_proba
+        return final_proba
+    
+    # Replace the method
+    Parcel.move2cooling_proba = simple_product_proba
+    
+    try:
+        # Run model with this probability calculation
+        print("Running model with simple product probability calculation...")
+        heat_event = HeatEvent(temperature)
+        
+        # Pass the temperature and/or raster file
+        heat_event.run_simulation(temp_raster=temp_raster_fp, temperature=temperature)
+            
+        # Add model type to the event object for reference
+        heat_event.model_type = "simple_product"
+        
+        # IMPORTANT: Process results BEFORE trying to save the file
+        heat_event.process_results()
+        
+        # Now create output folder and save results
+        output_folder = f'./results/{datetime.now().strftime("%Y%m%d_%H%M%S")}_simple_product'
+        os.makedirs(output_folder, exist_ok=True)
+        heat_event.gdf.to_file(os.path.join(output_folder, f'results_simple_product.shp'), driver='ESRI Shapefile')
+        
+        # Visualize if needed
+        heat_event.visualize_results()
+        
+        return heat_event
+    
+    finally:
+        # Restore the original method
+        Parcel.move2cooling_proba = original_method
+```
+
+# Execute all models
+
+```{python}
+# *IMPORTANT* - Choose your input type and value
+# Change "type" based on desired input data type (static temperature or raster dataset)
+input_data = {
+    "type": "temp",  # Options: "temp" or "raster"
+    "value": 100,     # Temperature value (if type="temp")
+    "raster_path": "./data/Kriging_Aug27.tif"  # Raster file path (if type="raster")
+}
+```
+
+```{python}
+# Run all three model types
+geometric_model = None
+weighted_model = None
+product_model = None
+
+if input_data["type"] == "temp":
+    print(f"Using static temperature: {input_data['value']}°F")
+    geometric_model = run_geometric_mean_model(temperature=input_data["value"])
+    weighted_model = run_weighted_sum_model(temperature=input_data["value"])
+    product_model = run_simple_product_model(temperature=input_data["value"])
+    temperature_source = f"{input_data['value']}°F"
+    
+elif input_data["type"] == "raster":
+    print(f"Using temperature raster: {input_data['raster_path']}")
+    geometric_model = run_geometric_mean_model(temp_raster_fp=input_data["raster_path"])
+    weighted_model = run_weighted_sum_model(temp_raster_fp=input_data["raster_path"])
+    product_model = run_simple_product_model(temp_raster_fp=input_data["raster_path"])
+    temperature_source = "raster"
+```
+
+```{python}
+# Print summary of the results
+print(f"\nModel Comparison Summary (Temperature: {temperature_source}):")
+print(f"Geometric Mean: {sum(1 for p in geometric_model.parcels if p.decision != 'stay') / len(geometric_model.parcels) * 100:.2f}% moved to cooling centers")
+print(f"Weighted Sum: {sum(1 for p in weighted_model.parcels if p.decision != 'stay') / len(weighted_model.parcels) * 100:.2f}% moved to cooling centers")
+print(f"Simple Product: {sum(1 for p in product_model.parcels if p.decision != 'stay') / len(product_model.parcels) * 100:.2f}% moved to cooling centers")
+```
+
+# Moran's I
+
+```{python}
+def calculate_morans_i(heat_event, model_name):
+    # Convert parcels to GeoDataFrame
+    data = []
+    for parcel in heat_event.parcels:
+        data.append({
+            'pid': parcel.id,
+            'decision': 1 if parcel.decision != 'stay' else 0,  # 1 for move, 0 for stay
+            'geometry': parcel.attributes['geometry']
+        })
+    
+    gdf = gpd.GeoDataFrame(data, geometry='geometry').set_crs(epsg=26915)
+    
+    # Create spatial weights matrix
+    # Using KNN because it ensures all observations have neighbors
+    knn = 8  # Number of neighbors (you can adjust this)
+    w_knn = KNN.from_dataframe(gdf, k=knn)
+    
+    # Row-standardize the weights matrix
+    w_knn.transform = 'R'
+    
+    # Calculate Moran's I
+    y = gdf['decision']
+    moran = Moran(y, w_knn)
+    
+    # Print results
+    print(f"\nSpatial Autocorrelation Analysis for {model_name} Model:")
+    print(f"Moran's I: {moran.I:.4f}")
+    print(f"p-value: {moran.p_sim:.4f}")
+    
+    # Interpret the result
+    if moran.p_sim < 0.05:
+        if moran.I > 0:
+            interpretation = "Significant clustering of movement decisions"
+        else:
+            interpretation = "Significant dispersion of movement decisions"
+    else:
+        interpretation = "No significant spatial pattern detected"
+    
+    print(f"Interpretation: {interpretation}")
+    
+    # Create and save a visualization
+    # Plot the movement decisions
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    
+    # Custom colormap (red for stay, blue for move)
+    colors = [(0.8, 0.0, 0.0, 0.7), (0.0, 0.0, 0.8, 0.7)]  # Light red, light blue with transparency
+    cmap = LinearSegmentedColormap.from_list('move_stay', colors, N=2)
+    
+    # Plot with custom colormap - FIX: Removed legend=True and legend_kwds
+    gdf.plot(column='decision', cmap=cmap, ax=ax)
+    
+    # Create manual legend
+    stay_patch = mpatches.Patch(color=colors[0], label='Stay')
+    move_patch = mpatches.Patch(color=colors[1], label='Move')
+    ax.legend(handles=[stay_patch, move_patch], loc='upper right')
+    
+    # Title and labels
+    plt.title(f'Spatial Distribution of Movement Decisions - {model_name} Model\nMoran\'s I: {moran.I:.4f} (p-value: {moran.p_sim:.4f})')
+    plt.savefig(f'spatial_distribution_{model_name.lower().replace(" ", "_")}.png', dpi=300, bbox_inches='tight')
+    
+    # Return results for comparison
+    return {
+        'model': model_name,
+        'morans_i': moran.I,
+        'p_value': moran.p_sim,
+        'interpretation': interpretation,
+        'percent_moved': (gdf['decision'].sum() / len(gdf)) * 100
+    }
+```
+
+```{python}
+# Calculate Moran's I for each model
+spatial_results = []
+
+# Plot
+if geometric_model is not None and weighted_model is not None and product_model is not None:
+    # Calculate Moran's I for each model
+    geometric_spatial = calculate_morans_i(geometric_model, "Geometric Mean")
+    weighted_spatial = calculate_morans_i(weighted_model, "Weighted Sum")
+    product_spatial = calculate_morans_i(product_model, "Product")
+    
+    # Combine results
+    spatial_results = [geometric_spatial, weighted_spatial, product_spatial]
+    
+    # Create a comparison dataframe
+    spatial_df = pd.DataFrame(spatial_results)
+    
+    # Display the comparison table
+    print("\nSpatial Pattern Comparison:")
+    print(spatial_df[['model', 'morans_i', 'p_value', 'interpretation', 'percent_moved']])
+    
+    # Create a bar chart comparing Moran's I values
+    plt.figure(figsize=(10, 6))
+    plt.bar(spatial_df['model'], spatial_df['morans_i'])
+    plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+    plt.title("Comparison of Spatial Clustering (Moran's I) Across Models")
+    plt.ylabel("Moran's I")
+    plt.grid(axis='y', alpha=0.3)
+    
+    # Add value labels on top of bars
+    for i, v in enumerate(spatial_df['morans_i']):
+        plt.text(i, v + (0.02 if v >= 0 else -0.02), 
+                 f"{v:.4f}", 
+                 ha='center', 
+                 fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig('morans_i_comparison.png')
+    plt.show()
+```
+
+# Time
+
+```{python}
+# Total execution time
+end_time = time.time()
+total_time = end_time - start_time
+minutes = total_time / 60
+
+print(f"Total execution time: {minutes:.2f} minutes")
+```

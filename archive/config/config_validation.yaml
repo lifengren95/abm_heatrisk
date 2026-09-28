@@ -1,0 +1,67 @@
+# config.yaml - Heat Risk ABM Model Configuration
+
+# Directory Paths
+paths:
+  code_dir: "."
+  output_dir: "./output"
+  data_dir: "./data"
+  results_dir: "results"
+  figures_dir: "figures"
+  validation_output_dir: "./data/validate_data/output"
+
+# Input Data
+input_data:
+  temp_raster: "../../data/LandSurface_Temperature_2022_500m.tif"
+  # Use static temperatures for validation study
+  static_temperatures: [94.73, 82.56]  # Two temperature levels for validation
+  use_raster: false  # Set to false to use static temperatures
+  current_temp_index: 0  # Will be updated programmatically
+  
+# Model Parameters
+model:
+  num_runs: 5  # Number of ensemble runs
+  random_seed: 42
+  fallback_temperature: 100  # Used when raster sampling fails
+
+# Decision Model Parameters
+decision_parameters:
+  temperature_threshold: 70  # °F
+  age_threshold: 70  # years
+  income_threshold: 70000  # dollars
+
+# Validation Study Parameters
+validation:
+  track_cooling_center_visits: true
+  validated_centers_only: true  # Focus on validate_tag == 1 centers
+  save_visit_summary: true
+
+# Output Files
+output:
+  ensemble_results: "validation_results.shp"
+  cooling_center_visits: "cooling_center_visits_summary.csv"
+  probability_histogram: "validation_probability_distribution.png"
+  spatial_map: "validation_spatial_probability_map.png"
+  catchment_map: "validation_cooling_center_catchments.png"
+  stability_map: "validation_decision_stability.png"
+
+# Database Configuration
+database:
+  host: "" # Set through PGHOST / PGDATABASE / PGUSER
+  port: 5432 # Override with PGPORT
+  database: "" # Set through PGHOST / PGDATABASE / PGUSER
+  user: "" # Set through PGHOST / PGDATABASE / PGUSER
+  # Note: password should be set via environment variable or prompted
+
+# Visualization Settings
+visualization:
+  figure_size_small: [10, 6]
+  figure_size_large: [15, 10]
+  dpi: 300
+  colormap: "viridis"
+  alpha: 0.9
+
+# Processing Options
+processing:
+  suppress_warnings: true
+  show_progress: true
+  save_intermediate_results: false

@@ -1,0 +1,400 @@
+---
+title: Sensitivity Analysis
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+
+
+#### Overview
+This analysis focuses on understanding how a single parameter affects people's decisions to seek cooling centers during heat events, tested across different ambient temperatures.
+
+#### Parameters to Test
+
+##### Ambient Temperatures: [90°F, 100°F, 110°F]
+- Environmental conditions for each simulation run
+- Tests parameter sensitivity under different heat intensities
+
+##### Parameters Available for Analysis:
+
+###### AC Ratio [0.3, 0.5, 0.7]
+- Proportion of households with air conditioning
+- Higher values = fewer people seeking cooling centers
+
+###### Temperature Threshold [70, 80, 90]
+- Temperature at which people consider moving to cooling centers
+- Lower values = greater heat sensitivity
+- Higher values = people tolerate higher temperatures before seeking cooling
+
+###### Age Threshold [50, 70, 90]
+- Age at which heat vulnerability significantly changes
+- Controls where age-related mobility effects occur
+- Affects demographic groups differently
+
+###### Income Threshold [50K, 70K, 90K]
+- Income level where cooling behavior changes
+- Lower-income households more likely to seek public cooling
+- Higher-income households have more cooling options
+
+#### Analysis Approach
+1. Define parameter values for all parameters to be tested
+2. Run separate analyses on each parameter of interest
+3. Each parameter is tested with 3 different values
+4. Each value is tested at 3 different ambient temperatures
+5. Results are saved to separate files for comparison
+
+# Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm.notebook import tqdm
+import os
+import time
+from datetime import datetime
+import sys
+from src import Parcel, HeatEvent
+
+# Start time
+start_time = time.time()
+```
+
+```{python}
+# Output directory
+output_dir = r"./results/sensitivity_analysis_results"
+os.makedirs(output_dir, exist_ok=True)
+os.chdir(output_dir)
+print(f"Current working directory: {os.getcwd()}")
+```
+
+# Function for Analysis
+
+```{python}
+def sensitivity_analysis(param_name, param_values, temperatures=[90, 100, 110]):
+    """
+    Run a sensitivity analysis for a single parameter across multiple temperatures.
+    """
+    # Store results
+    results = []
+    
+    print(f"Running simplified sensitivity analysis for parameter: {param_name}")
+    
+    # For each temperature
+    for temp in temperatures:
+        print(f"\nTesting at temperature: {temp}°F")
+        
+        # Run model for each parameter value at this temperature
+        for param_value in tqdm(param_values):
+            # Initialize the model with this temperature
+            heat_event = HeatEvent(temp)
+            
+            # Load data
+            heat_event.load_data()
+            
+            # Set the parameter value depending on which one we're testing
+            if param_name == "ac_ratio":
+                # Override the AC assignment to use specified AC ratio
+                n_parcels = len(heat_event.parcels)
+                n_with_ac = int(n_parcels * param_value)
+                
+                # Assign AC values (1 = has AC, 0 = no AC)
+                ac_values = [1] * n_with_ac + [0] * (n_parcels - n_with_ac)
+                np.random.shuffle(ac_values)
+                
+                for i, parcel in enumerate(heat_event.parcels):
+                    parcel.attributes['AC'] = ac_values[i]
+            
+            # Continue with population assignment
+            heat_event.assign_synthetic_population()
+            
+            # Assign temperature to parcels
+            for parcel in heat_event.parcels:
+                parcel.attributes['temperature'] = temp
+            
+            # Run decision making with custom parameter if needed
+            for parcel in tqdm(heat_event.parcels, desc="Making decisions", leave=False):
+                if param_name == "temp_thr":
+                    parcel.proba = parcel.move2cooling_proba(temp_thr=param_value)
+                elif param_name == "age_thr":
+                    parcel.proba = parcel.move2cooling_proba(age_thr=param_value)
+                elif param_name == "income_thr":
+                    parcel.proba = parcel.move2cooling_proba(income_thr=param_value)
+                else:
+                    # Use default parameter values
+                    parcel.proba = parcel.move2cooling_proba()
+                
+                # Make decision based on probability
+                parcel.decision = 'stay'
+                if parcel.proba >= 0.5:
+                    parcel.decision = parcel.nearest_cooling_centers[0] if parcel.nearest_cooling_centers else 'stay'
+            
+            # Calculate metrics
+            stayed_home = sum(1 for p in heat_event.parcels if p.decision == 'stay')
+            moved_to_cc = sum(1 for p in heat_event.parcels if p.decision != 'stay')
+            total_parcels = len(heat_event.parcels)
+            
+            # Store result
+            results.append({
+                'param_name': param_name,
+                'param_value': param_value,
+                'temperature': temp,
+                'stayed_home': stayed_home,
+                'moved_to_cc': moved_to_cc,
+                'total_parcels': total_parcels,
+                'percent_moved': (moved_to_cc / total_parcels) * 100
+            })
+    
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Create visualization with multiple lines for different temperatures
+    plt.figure(figsize=(12, 7))
+    
+    # Create a separate line for each temperature
+    for temp in temperatures:
+        temp_df = results_df[results_df['temperature'] == temp]
+        plt.plot(temp_df['param_value'], temp_df['percent_moved'], 'o-', 
+                 label=f'{temp}°F')
+    
+    plt.title(f'Sensitivity Analysis: Effect of {param_name} on Movement')
+    plt.xlabel(param_name)
+    plt.ylabel('Percent of Population Moving to Cooling Centers')
+    plt.grid(True)
+    plt.legend(title='Temperature')
+    plt.tight_layout()
+    plt.savefig(f"sensitivity_{param_name}_multi_temp.png")
+    plt.show()
+    
+    # Also create a grid of subplots for clearer visualization
+    plt.figure(figsize=(15, 5))
+    
+    for i, temp in enumerate(temperatures, 1):
+        plt.subplot(1, len(temperatures), i)
+        temp_df = results_df[results_df['temperature'] == temp]
+        plt.plot(temp_df['param_value'], temp_df['percent_moved'], 'o-', color=f'C{i-1}')
+        plt.title(f'Temperature: {temp}°F')
+        plt.xlabel(param_name)
+        if i == 1:
+            plt.ylabel('Percent Moving')
+        plt.grid(True)
+    
+    plt.suptitle(f'Sensitivity Analysis: Effect of {param_name}', fontsize=16)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.85)
+    plt.savefig(f"sensitivity_{param_name}_panel.png")
+    plt.show()
+    
+    # Print summary statistics
+    print("\nSummary:")
+    for temp in temperatures:
+        temp_df = results_df[results_df['temperature'] == temp]
+        min_val = temp_df.loc[temp_df['percent_moved'].idxmin()]
+        max_val = temp_df.loc[temp_df['percent_moved'].idxmax()]
+        print(f"\nAt {temp}°F:")
+        print(f"  Min movement: {min_val['percent_moved']:.2f}% at {param_name}={min_val['param_value']}")
+        print(f"  Max movement: {max_val['percent_moved']:.2f}% at {param_name}={max_val['param_value']}")
+        print(f"  Range of impact: {max_val['percent_moved'] - min_val['percent_moved']:.2f} percentage points")
+    
+    # Calculate and print parameter sensitivity at each temperature
+    print("\nParameter Sensitivity by Temperature:")
+    sensitivity_by_temp = []
+    
+    for temp in temperatures:
+        temp_df = results_df[results_df['temperature'] == temp]
+        min_pct = temp_df['percent_moved'].min()
+        max_pct = temp_df['percent_moved'].max()
+        sensitivity = max_pct - min_pct
+        sensitivity_by_temp.append({'temperature': temp, 'sensitivity': sensitivity})
+        print(f"  {temp}°F: {sensitivity:.2f} percentage points")
+    
+    # Create a bar chart of parameter sensitivity at different temperatures
+    sensitivity_df = pd.DataFrame(sensitivity_by_temp)
+    
+    plt.figure(figsize=(8, 5))
+    plt.bar(sensitivity_df['temperature'].astype(str) + '°F', 
+            sensitivity_df['sensitivity'])
+    plt.title(f'Sensitivity of {param_name} at Different Temperatures')
+    plt.xlabel('Temperature')
+    plt.ylabel('Range of Impact (percentage points)')
+    plt.grid(True, axis='y')
+    plt.tight_layout()
+    plt.savefig(f"sensitivity_{param_name}_by_temp.png")
+    plt.show()
+    
+    return results_df
+```
+
+# Execute
+
+```{python}
+# Define parameter values for all parameters
+temp_thr_values = [70, 80, 90]  # Different temperature thresholds
+ac_ratio_values = [0.3, 0.5, 0.7]  # Different AC ownership rates
+age_thr_values = [50, 70, 90]  # Different age thresholds
+income_thr_values = [50000, 70000, 90000]  # Different income thresholds
+```
+
+```{python}
+# Run temperature threshold sensitivity analysis
+results_temp = sensitivity_analysis('temp_thr', temp_thr_values)
+```
+
+```{python}
+# Run AC ratio sensitivity analysis
+results_ac = sensitivity_analysis('ac_ratio', ac_ratio_values)
+```
+
+```{python}
+# Run age threshold sensitivity analysis
+results_age = sensitivity_analysis('age_thr', age_thr_values)
+```
+
+```{python}
+# Run income threshold sensitivity analysis
+results_income = sensitivity_analysis('income_thr', income_thr_values)
+```
+
+# Summary of Results
+
+```{python}
+def create_consolidated_summary(results_dict):
+    """
+    Create a consolidated summary of sensitivity analyses across different parameters.
+    """
+    # Extract temperatures from the existing results
+    # Take first DataFrame's unique temperatures
+    first_df = next(iter(results_dict.values()))
+    temperatures = sorted(first_df['temperature'].unique())
+    
+    # Create a DataFrame to store sensitivity values
+    all_sensitivities = []
+    
+    # Process each parameter's results
+    for param_name, results_df in results_dict.items():
+        # Calculate sensitivity at each temperature
+        for temp in temperatures:
+            temp_df = results_df[results_df['temperature'] == temp]
+            min_pct = temp_df['percent_moved'].min()
+            max_pct = temp_df['percent_moved'].max()
+            sensitivity = max_pct - min_pct
+            
+            all_sensitivities.append({
+                'parameter': param_name,
+                'temperature': temp,
+                'sensitivity': sensitivity,
+                'min_movement': min_pct,
+                'max_movement': max_pct
+            })
+    
+    # Convert to DataFrame
+    sensitivity_df = pd.DataFrame(all_sensitivities)
+    
+    # Create a heatmap of sensitivities
+    plt.figure(figsize=(10, 6))
+    pivot_df = sensitivity_df.pivot(index='parameter', columns='temperature', values='sensitivity')
+    sns.heatmap(pivot_df, annot=True, fmt='.1f', cmap='YlOrRd')
+    plt.title('Parameter Sensitivity Comparison Across Temperatures')
+    plt.xlabel('Temperature (°F)')
+    plt.ylabel('Parameter')
+    plt.tight_layout()
+    plt.savefig("consolidated_sensitivity_heatmap.png")
+    plt.show()
+    
+    # Create a grouped bar chart
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x='parameter', y='sensitivity', hue='temperature', data=sensitivity_df)
+    plt.title('Parameter Sensitivity Comparison')
+    plt.xlabel('Parameter')
+    plt.ylabel('Sensitivity (percentage points)')
+    plt.legend(title='Temperature (°F)')
+    plt.grid(axis='y')
+    plt.tight_layout()
+    plt.savefig("consolidated_sensitivity_barchart.png")
+    plt.show()
+    
+    # Rank parameters by average sensitivity
+    param_ranking = sensitivity_df.groupby('parameter')['sensitivity'].mean().sort_values(ascending=False)
+    
+    # Print summary
+    print("\n===== CONSOLIDATED SENSITIVITY ANALYSIS SUMMARY =====\n")
+    print("Parameter Ranking by Average Sensitivity:")
+    for i, (param, sensitivity) in enumerate(param_ranking.items(), 1):
+        print(f"{i}. {param}: {sensitivity:.2f} percentage points")
+    
+    print("\nDetailed Sensitivity by Temperature:")
+    for param in param_ranking.index:
+        print(f"\n{param}:")
+        for temp in temperatures:
+            temp_data = sensitivity_df[(sensitivity_df['parameter'] == param) & 
+                                      (sensitivity_df['temperature'] == temp)]
+            print(f"  {temp}°F: {temp_data['sensitivity'].values[0]:.2f} percentage points")
+    
+    # Create a summary table
+    pivot_table = pd.pivot_table(sensitivity_df, 
+                               values='sensitivity', 
+                               index=['parameter'],
+                               columns=['temperature'],
+                               aggfunc='mean')
+    pivot_table['average'] = pivot_table.mean(axis=1)
+    pivot_table = pivot_table.sort_values('average', ascending=False)
+    
+    print("\nSensitivity Summary Table:")
+    print(pivot_table)
+    
+    return sensitivity_df, pivot_table
+```
+
+```{python}
+results_dict = {
+    'temp_thr': results_temp,
+    'ac_ratio': results_ac,
+    'age_thr': results_age,
+    'income_thr': results_income
+}
+```
+
+```{python}
+# Create consolidated summary
+sensitivity_summary, summary_table = create_consolidated_summary(results_dict)
+```
+
+### Sensitivity Analysis Results
+
+#### Key Findings
+
+* **AC ratio is most influential** (25.8 percentage points sensitivity, previously 25.9), indicating household cooling access is the primary factor in cooling center usage.
+
+* **Income threshold ranks second** (20.8 points, unchanged), with increasing importance at higher temperatures (18.5→22.6 points from 90°F to 110°F, previously 18.5→22.7).
+
+* **Temperature threshold** (10.2 points, previously 10.2) becomes significantly less impactful at extreme heat (12.1→6.5 points, previously 12.2→6.5), suggesting everyone seeks cooling regardless of heat tolerance when temperatures exceed 100°F.
+
+* **Age threshold has minimal impact** (7.1 points, previously 7.1), consistently ranking as the least influential factor, though its influence increases slightly with temperature (6.2→7.9 points, previously 6.0→7.8).
+
+# Export
+
+```{python}
+# Save summary to CSV
+sensitivity_summary.to_csv("consolidated_sensitivity_results.csv", index=False)
+summary_table.to_csv("sensitivity_summary_table.csv")
+```
+
+```{python}
+# Total execution time
+end_time = time.time()
+total_time = end_time - start_time
+minutes = total_time / 60
+
+print(f"Total execution time: {minutes:.2f} minutes")
+```

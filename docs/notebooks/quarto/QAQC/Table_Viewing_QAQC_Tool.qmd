@@ -1,0 +1,209 @@
+---
+title: PostgreSQL Database - Table Viewing Tool
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+
+
+```{python}
+import pandas as pd
+import geopandas as gpd
+import psycopg2
+from sqlalchemy import create_engine
+from shapely import wkt
+```
+
+# Database connection + parameters
+
+```{python}
+import os
+# Database connection parameters
+DB_NAME = os.environ["PGDATABASE"]
+DB_USER = os.environ["PGUSER"]
+DB_PASSWORD = os.environ["PGPASSWORD"]
+DB_HOST = os.environ["PGHOST"]
+DB_PORT = os.environ["PGPORT"]
+
+# Connect to PostgreSQL
+connection = psycopg2.connect(
+    database = DB_NAME,
+    user = DB_USER,
+    password = DB_PASSWORD,
+    host = DB_HOST,
+    port = DB_PORT
+)
+cursor = connection.cursor()
+
+# SQLAlchemy connection string
+connection_string = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+engine = create_engine(connection_string)
+```
+
+# Search tables
+
+```{python}
+def list_tables(search_term=None):
+    """List tables in the PostgreSQL database"""
+    cursor.execute("""
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public';
+    """)
+    
+    tables = cursor.fetchall()
+    
+    print("Tables in the database:")
+    for table in tables:
+        print(table[0])
+
+list_tables()
+```
+
+# Pull table of choice and view as gdf
+
+```{python}
+def get_table_as_gdf(table_name, geom_col='geometry', crs=26915):
+    """Pull a table from PostgreSQL and convert to GeoDataFrame using geopandas read_postgis functionality"""
+    
+    # Check if geometry column exists
+    cursor.execute(f"""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = '{table_name}';
+    """)
+    columns = [col[0] for col in cursor.fetchall()]
+    
+    if geom_col in columns:
+        # Use read_postgis which handles geometry conversion automatically
+        gdf = gpd.read_postgis(
+            f"SELECT * FROM {table_name}",
+            con=engine,
+            geom_col=geom_col
+        )
+        # Set CRS if needed
+        if gdf.crs is None:
+            gdf.set_crs(epsg=crs, inplace=True)
+        return gdf
+    else:
+        # Get data without geometry
+        df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+        print(f"No geometry column found in table '{table_name}'")
+        return df
+```
+
+```{python}
+# Choose table and convert to gdf
+TABLE_NAME = "clean_parcels"  # Change this to your table of choice
+gdf = get_table_as_gdf(TABLE_NAME)
+gdf
+```
+
+# QAQC data
+
+```{python}
+def qaqc_gdf(gdf):
+    # Basic information about the DataFrame
+    qaqc_results = {
+        'total_rows': len(gdf),
+        'total_columns': len(gdf.columns)
+    }
+    
+    # Check for null values in each column
+    null_counts = gdf.isnull().sum()
+    qaqc_results['null_counts'] = null_counts[null_counts > 0].to_dict()
+    
+    # Check for empty strings in object columns
+    empty_string_counts = {}
+    for col in gdf.select_dtypes(include=['object']):
+        empty_count = (gdf[col] == '').sum()
+        if empty_count > 0:
+            empty_string_counts[col] = empty_count
+    qaqc_results['empty_string_counts'] = empty_string_counts
+    
+    # Check for duplicate rows
+    qaqc_results['duplicate_rows'] = gdf.duplicated().sum()
+    
+    # Column data types
+    qaqc_results['column_types'] = gdf.dtypes.to_dict()
+    
+    # Geometry specific checks
+    if 'geometry' in gdf.columns:
+        qaqc_results['crs'] = str(gdf.crs)
+        qaqc_results['geometry_validity'] = gdf.geometry.is_valid.sum()
+        qaqc_results['total_geometries'] = len(gdf.geometry)
+    
+    return qaqc_results
+
+def print_qaqc_results(qaqc_results):
+    print("QAQC Results:")
+    print("-" * 40)
+    
+    print(f"Total Rows: {qaqc_results['total_rows']}")
+    print(f"Total Columns: {qaqc_results['total_columns']}")
+    
+    print("\nNull Counts:")
+    for col, count in qaqc_results.get('null_counts', {}).items():
+        print(f"  {col}: {count} null values")
+    
+    print("\nEmpty String Counts:")
+    for col, count in qaqc_results.get('empty_string_counts', {}).items():
+        print(f"  {col}: {count} empty strings")
+    
+    print(f"\nDuplicate Rows: {qaqc_results['duplicate_rows']}")
+    
+    print("\nColumn Types:")
+    for col, dtype in qaqc_results['column_types'].items():
+        print(f"  {col}: {dtype}")
+    
+    if 'crs' in qaqc_results:
+        print(f"\nCoordinate Reference System (CRS): {qaqc_results['crs']}")
+        print(f"Valid Geometries: {qaqc_results['geometry_validity']} out of {qaqc_results['total_geometries']}")
+```
+
+```{python}
+# Run QAQC
+qaqc_results = qaqc_gdf(gdf)
+print_qaqc_results(qaqc_results)
+```
+
+```{python}
+gdf['prop_type'].unique()
+```
+
+```{python}
+# non residential
+    # 'COMMON AREA','COMMERCIAL-PREFERRED', None, 'LAND-COMMERCIAL','CONDO GARAGE/MISCELLANEOUS','SEASONAL-RESIDENTIAL REC', 'GOLF COURSE','FARM', 'INDUSTRIAL-PREFERRED',
+    #   'RAILROAD','FARM - NON PRODUCTIVE LAND','VACANT LAND-APARTMENT', 'INDUSTRIAL-NON PREFERRED',
+   #    'MED/CARE FACILITY', 'COMMERCIAL-NON PREFERRED',
+    #   'LAND - INDUSTRIAL', 'UTILITY', 'VACANT LAND-RURAL RESIDENTIAL',
+    # 'COMMUNITY ORG NON REVENUE', 'AG PRESERVE',
+   #    'COMMUNITY ORG DONATION', 'MARINA', 'LAND-INDUSTRIAL',
+    #   'AG NHSTD MULT UNIT', 'MANUFACTURED HOME PK EDU CERT',
+     #  'CHARTERED VET ORD DONATION',
+    # 'SEASONAL LAKESHORE RESTAURANT', 'SOCIAL CLUB'
+
+# Residential 
+['RESIDENTIAL', 'CONDOMINIUM', 'VACANT LAND-RESIDENTIAL', 'TRIPLEX',
+ 'APARTMENT', 'RESIDENTIAL-TWO UNIT', 'LOW INCOME RENTAL',
+ 'TOWNHOUSE', 'RESIDENTIAL-ZERO LOT LINE', 'COOPERATIVE HOUSING',
+ 'SORORITY/FRATERNITY HOUSING', 'MOBILE HOME PARK']
+```
+
+# Close connection
+
+```{python}
+cursor.close()
+connection.close()
+print("Database connection closed.")
+```
+

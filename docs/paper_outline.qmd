@@ -1,0 +1,191 @@
+
+# Green or Grey? Optimal Mix of Mitigation Strategies to Minimize Health Impacts During Extreme Heat Events
+
+## Introduction
+
+* **Background on Extreme Heat & Health:** Extreme heat events are increasing in frequency and intensity due to climate change. These events pose significant health risks, including heat exhaustion, heat stroke, and elevated mortality, especially in urban areas.
+* **Vulnerable Populations:** Certain groups (e.g. older adults, low-income households, those with chronic illness) are disproportionately affected by heat. Lack of access to air conditioning (AC) is a key risk factor – the heat-related death rate for people without residential AC is significantly higher than for those with AC. In northern regions historically unaccustomed to high heat, many homes still lack central AC (e.g. \~6% of Minnesota homes had no AC as of 2020), exacerbating vulnerability.
+* **Mitigation Strategies – “Green” vs. “Grey”:** Communities deploy both **nature-based** (“green”) and **built environment** (“grey”) interventions to reduce heat-health impacts. Nature-based strategies like expanding urban tree canopy provide shade and evapotranspiration cooling, potentially lowering ambient temperatures by several degrees. (For instance, achieving 40% tree canopy cover can reduce urban air temperatures by up to \~4–5 °C.) Grey strategies include infrastructural interventions such as cooling centers and expanded AC access, which provide immediate relief by offering cooled indoor spaces.
+* **Knowledge Gap:** It remains unclear what the optimal mix of green vs. grey interventions is for maximum health benefit. Cooling centers are a common, low-cost intervention, but their usage and effectiveness can be limited by awareness and access issues (e.g. centers often report low attendance). Conversely, nature-based solutions yield diffuse cooling benefits but require large-scale implementation and time to realize full effects.
+* **Objective:** This study uses an agent-based model (ABM) of Hennepin County, Minnesota to compare cooling-center-based interventions vs. nature-based interventions in reducing heat-related health impacts. We aim to identify the optimal combination of strategies (“green or grey” or both) that minimizes adverse health outcomes during extreme heat events.
+* **Structure of Paper:** The remainder of the paper is organized as follows. **Data** describes the study area and input datasets (climate data, population, etc.). **Model Design** details the agent-based simulation of heat exposure and response behaviors under various interventions. **Results** presents the outcomes for different mitigation scenarios and identifies the most effective strategy mix. **Validation and Sensitivity Analysis** discusses model verification against real observations and explores how sensitive results are to key assumptions. **Discussion and Conclusion** highlights the implications of findings for policy and future research, and provides concluding remarks.
+
+## Data
+
+* **Study Area – Hennepin County, MN:** Description of the geographic and demographic context. Hennepin County (which includes Minneapolis and surrounding communities) experiences continental climate with occasional summer heatwaves. Note population size and diversity, including vulnerable subpopulations (elderly, etc.) and baseline tree canopy coverage and green space.
+* **Climate Data (PRISM Temperature Dataset):** Daily high-resolution temperature data from the PRISM Climate Group (800 m resolution) for summers of 2020–2024 is used to drive the model. This dataset provides spatially explicit temperature estimates across the county, capturing urban heat island patterns and microclimate variations. We extract daily maximum temperatures for June 1–August 31 of each year, focusing on documented extreme heat days (e.g., days exceeding certain heat index or temperature thresholds).
+
+  * Data processing: mention how PRISM grids are mapped to the study area (e.g., interpolated or averaged to parcel level) and how heat event days are defined from this data (e.g., top 5% hottest days each summer).
+  * *Placeholder Figure 1:* **Map of Hennepin County with Climate Data:** A map showing the study area and PRISM temperature data overlay (e.g., average daytime high temperatures across the county or a sample heatwave day’s temperature distribution), as well as locations of existing cooling centers.
+* **Synthetic Population & Demographics:** The model employs a synthetic population at the parcel level. We integrate data from the U.S. Census and local land use records to create individual agents or households for each residential parcel:
+
+  * **Demographic Attributes:** Each agent is assigned attributes like age, gender, income level, and any health risk factors. The distribution of these attributes is matched to census tract or block-group statistics for Hennepin County to ensure realistic spatial patterns (e.g., clusters of elderly populations, income distribution).
+  * **Socioeconomic & Housing Data:** Include housing type (single-family, multi-family, high-rise), which can influence exposure (e.g., top-floor apartments can be hotter). Note population density variations across urban vs. suburban areas.
+  * **Air Conditioning Ownership:** A key input is whether each household has air conditioning. We use parcel-level data if available (e.g., from property assessments or surveys indicating AC presence) or otherwise apply block-group level AC prevalence estimates. For example, if 94% of homes in a given area have AC, a corresponding fraction of agents are assigned “AC = yes”. This allows identification of agents who lack AC and would be reliant on other cooling options.
+  * Data source notes: cite any sources for synthetic population generation (e.g., *Minnesota Integrated Public Use Microdata* or similar).
+  * *Placeholder Table 1:* **Key Data Sources and Attributes:** A table summarizing all input data sources. Columns might include: Dataset (e.g., PRISM climate, Census/ACS, Parcel data, Tree canopy data, Cooling center locations), Description, Spatial/temporal resolution, and how each is used in the model.
+* **Nature-Based Intervention Data (Tree Canopy & Greening):** Baseline urban tree canopy cover and green infrastructure data for the county. We use GIS layers of tree canopy or land cover (e.g., from city forestry data or satellite-derived estimates) to identify current canopy percentages by neighborhood.
+
+  * The model will simulate increased canopy scenarios, so baseline values are needed. (For instance, if average canopy is 25% in the urban core, scenarios might increase this to 30% or 40% in target areas.) We note any assumptions about the cooling effect per increment of canopy (e.g., X°C reduction per 10% increase in canopy, based on literature or local studies).
+  * If available, include data on surface characteristics (impervious surface maps) to help model how greening interventions alter heat retention.
+* **Cooling Center Data:** Information on current cooling centers (or public air-conditioned spaces) in Hennepin County:
+
+  * Locations and capacities of existing centers (e.g., libraries, community centers designated as cooling centers during heat alerts).
+  * Hours of operation, any transportation access information (since accessibility will factor into agent decisions).
+  * For intervention scenarios, potential expansion: data or assumptions on where new centers could be opened (e.g., identify underserved neighborhoods) and how much capacity could be added.
+* **Health Outcome Data (for Validation):** \[**Note:** Only outline if data exists; detailed validation content to be added later.] Records of heat-related health outcomes in recent years (e.g., emergency calls or hospitalizations for heat stroke in 2020–2024) can be noted for later model validation. This might include data from local public health departments or CDC on heat mortality/morbidity in the region, which will be used in the **Validation** section to compare against model outputs.
+
+## Model Design
+
+* **Overview of the Agent-Based Model:** The model simulates individual behaviors and heat exposure outcomes at the parcel level for Hennepin County. We follow an **ODD (Overview, Design concepts, Details)** framework to document the ABM structure (Lu, 2022). The simulation runs for each day of the summer season, focusing on extreme heat days, and tracks how agents respond (stay home, seek cooling, etc.) and the resulting health impacts.
+* **Agents and Attributes:** Each agent (or household) is associated with a specific parcel (home location). Key attributes include:
+
+  * Age, health status (e.g., pre-existing conditions that increase heat risk), and social factors (living alone or with family, which can affect vulnerability).
+  * Socioeconomic status (income, which can influence access to resources or likelihood of having AC).
+  * AC ownership status (True/False) – influences the agent’s thermal environment at home.
+  * Awareness level of heat risk and cooling resources (to model whether the agent knows about and is willing to use cooling centers, capturing behavioral aspects).
+* **Environment and Spatial Layer:** The environment is represented by a spatial grid of parcels overlaid with climate data:
+
+  * Each parcel has a daily temperature exposure derived from the PRISM 800 m grid. Temperature may be adjusted by local factors: if a parcel is in a high tree canopy area vs. a low canopy area, we apply a temperature reduction factor for shade (e.g., a parcel with a 30% canopy may be 1–2°C cooler than the PRISM ambient temperature, based on urban heat island mitigation studies).
+  * Distances to nearest cooling centers are calculated for each parcel. Transportation or mobility constraints can be incorporated (e.g., an elderly agent might have a limited travel radius).
+  * The environment can also include a temporal aspect (day vs. night): for simplicity, model focuses on daytime maximum heat exposure and assumes night cooling is uniform or less critical (could be mentioned as an assumption).
+* **Time Steps and Simulation Horizon:** The model runs on a daily time step through the defined heat season (June–Aug for each year 2020–2024, or representative extreme heat episodes). For each simulated extreme heat day, agents make decisions in response to the heat:
+
+  * In the morning of a heat event day, an agent assesses the forecasted high temperature and decides on actions (stay home, go to cooling center, etc.).
+  * The simulation can either run for multiple individual historical events or generate a typical heatwave scenario (e.g., a 3-day heatwave) for scenario analysis. (Clarify whether results are aggregated over multiple summers 2020–2024 or focus on a representative worst-case event.)
+* **Agent Decision-Making Logic:** Each agent follows rules based on their attributes and environment:
+
+  * If an agent **has AC at home**, they are likely to stay home during extreme heat, assuming their AC is functioning and they can afford to run it. They will experience minimal health risk (we assume AC reduces indoor exposure significantly, though power outages or cost concerns are not explicitly modeled here).
+  * If an agent **does not have AC** (or is outdoors, like an outdoor worker agent type if included), they face high indoor heat exposure. They have the option to seek relief:
+
+    * **Cooling Center Utilization:** The agent decides whether to go to a cooling center. This decision can depend on awareness (do they know location/hours), risk perception (do they feel at risk), mobility (distance to center, transportation means), and social factors (some may avoid centers due to stigma or inconvenience). The model can include a probability of attending a cooling center if certain conditions are met (e.g., if temperature > X and distance < Y km and capacity allows, etc.).
+    * **Other Behaviors:** If not going to a cooling center, agents might employ coping behaviors (stay in shade, use fans, visit neighbors, etc.), but these are not explicitly modeled beyond their effect on exposure risk.
+  * **Health Outcome Determination:** Based on an agent’s exposure (e.g., duration of extreme heat without cooling) and vulnerability, the model probabilistically determines if the agent suffers a **heat-related illness** on that day. We might use a dose-response function: for example, given a certain indoor temperature and agent risk factors, there is a probability of mild heat illness or severe outcome. Agents who go to cooling centers have much lower risk during that period (assume cooling center use reduces heat mortality risk by \~66% similar to AC usage).
+* **Mitigation Strategies Modeled:** The core of the model design is how interventions are represented:
+
+  * **Cooling-Center-Based Interventions (Grey infrastructure):** We include scenarios such as:
+
+    * *Increased Capacity:* Assume existing cooling centers can serve more people (e.g., by extending hours or adding resources). In the model, this means higher occupancy thresholds—more agents can use a center before it is “full.”
+    * *Spatial Expansion:* Add additional cooling center locations in underserved areas. Concretely, we might activate extra agents or nodes representing new centers (e.g., at schools or malls in neighborhoods currently far from any center). This reduces distance barriers for nearby agents.
+    * *Awareness Campaigns:* (Mention if modeled) Increase the likelihood that agents know about and choose to use cooling centers (could be abstracted as a higher probability of attending for those without AC).
+    * Implementation: The model scenarios toggle these interventions on or off and adjust agent decision logic accordingly. For example, in a scenario with expanded centers, more agents will find a center within a 1 km radius, thus increasing usage.
+  * **Nature-Based Interventions (Green infrastructure):** We simulate increased tree canopy or other greening measures and their cooling effect:
+
+    * *Tree Canopy Increase:* We define one or more scenarios where the tree canopy cover is raised by a certain percentage in urban residential areas (for instance, +10% or an idealized scenario of reaching 40% canopy county-wide). The model translates this into a reduction in ambient temperature for those parcels (e.g., an additional 1-2°C reduction in daytime temps in those areas, based on literature).
+    * *Cooling Effect Estimation:* We may use an estimate such as each 10% increase in canopy yields \~1°C cooling in daytime highs (contextualized by the study area’s baseline; larger effects possible but likely localized). In scenarios, PRISM temperatures are adjusted downward accordingly for affected parcels.
+    * *Implementation:* Because planting trees is a long-term strategy, our model scenarios treat it hypothetically (we assume the trees are mature enough to provide the stated cooling). We might apply uniform canopy increase or target specific hotspots (e.g., focusing greening in downtown or low-income areas with sparse canopy).
+    * We do not explicitly model the timeline of tree growth; rather, we compare a present-day baseline vs. an alternative reality with higher canopy.
+* **Model Outcomes and Metrics:** The simulation tracks several outcome metrics for each scenario:
+
+  * Number of **heat-related illnesses or medical incidents** among the population (cumulative over the simulation period or per heat event).
+  * Number of **heat-related deaths** (if modeled, though with small probabilities we might present risk or expected value).
+  * **Healthcare demand**: e.g., calls to emergency services or hospital visits for heat illness.
+  * **Cooling center usage rates:** how many agents went to centers, what peak capacity usage was.
+  * **Spatial outcomes:** Identify neighborhoods with highest residual risk in each scenario (mapping hot spots of remaining vulnerability).
+  * Possibly **AC energy usage** (if relevant, though focus is health; we might note increased AC use in some scenarios implicitly).
+* **Assumptions & Parameters:** Summarize key model parameters and assumptions:
+
+  * Threshold temperature defining an extreme heat day (e.g., 90°F/32°C or using heat index).
+  * Probability functions for health outcome (calibrated from literature, e.g., relative risk of mortality increases X% per °C above a threshold).
+  * Tree canopy cooling factor, cooling center risk reduction factor (e.g., 66% risk reduction).
+  * Agent compliance/behavior rates (what fraction of non-AC population will actually go to a cooling center if available).
+  * Use references or calibration data if available for these values.
+  * *Placeholder Table 2:* **Key Model Parameters and Scenario Settings:** A table listing important parameters (with descriptions and values) and defining the scenarios. For example:
+
+    * Columns for Parameter (e.g., “Cooling center distance threshold for use”), Baseline Value, Source/Justification.
+    * A section listing Scenario definitions: Baseline (current state), Scenario A (cooling centers expanded), Scenario B (tree canopy increase), Scenario C (combined interventions), etc., with brief description of each.
+* *Placeholder Figure 2:* **Conceptual Model Diagram:** A flowchart or schematic illustrating the model logic. For instance, a flow diagram showing: “Input climate data → Agent checks AC? → If no AC, decide cooling center? → Calculate exposure → Determine health outcome.” This figure helps visualize agent decision-making and the influence of interventions (could highlight how the process differs under each strategy).
+
+## Results
+
+* **Overview of Simulation Experiments:** We run the model under multiple scenarios to evaluate the impact of each mitigation strategy and their combination. Scenarios include: (1) **Baseline (No Intervention)** – current conditions 2020–2024, existing canopy and cooling centers; (2) **Cooling Centers Enhanced** – e.g., doubling capacity and adding X new centers; (3) **Nature-Based Enhanced** – e.g., increasing tree canopy by Y%; (4) **Combined Strategy** – both cooling center expansion and tree canopy increase. Each scenario’s results are aggregated over the extreme heat events simulated.
+* **Baseline Scenario Outcomes:** Under current conditions, we observe significant heat-related health impacts:
+
+  * The model estimates the number of heat illnesses and any mortalities in a typical summer. For example, baseline results might show *N* heat-related hospitalizations and *M* deaths per 100,000 people over a severe heatwave.
+  * Spatial analysis reveals hotspots – perhaps low-income urban neighborhoods with low AC ownership and low canopy have the highest incidence of heat illness. A map could illustrate these high-risk areas in Hennepin County under status quo.
+  * Cooling center usage in the model baseline is low, consistent with observed trends (many centers under-utilized). Agents may prefer to stay home even in dangerous conditions, leading to preventable incidents.
+* **Cooling-Center-Only Intervention Results:** When increasing cooling center capacity/coverage:
+
+  * **Health Impact:** The model shows a reduction in heat-related illnesses and deaths relative to baseline. For example, an expanded network of centers might reduce total heat illnesses by X% (since more individuals without AC find refuge). The greatest benefits are concentrated in areas that were far from a cooling center in the baseline.
+  * **Utilization Patterns:** With more centers and outreach, the proportion of vulnerable agents using cooling centers increases. We might report metrics like peak occupancy rates at centers and the fraction of the population that visited a center at least once during a heat event.
+  * **Diminishing Returns:** We explore if simply adding capacity has limits – e.g., if awareness or willingness is the limiting factor, beyond a certain point additional centers yield little extra benefit (if model shows many agents still not utilizing them due to personal choice, etc.).
+  * A brief note if relevant: even with expansion, some individuals (e.g., homebound elderly) may still not access centers, leaving residual risk.
+* **Nature-Based-Only Intervention Results:** For scenarios with increased tree canopy:
+
+  * **Temperature Reduction:** The simulated ambient temperature on extreme heat days is modestly lower in areas with new greening. For example, if tree canopy is increased in urban residential blocks from 20% to 35%, those blocks see daytime highs reduced by \~1–2°C in the model. This cooling can lower heat exposure for *all* residents in those areas, not just specific individuals.
+  * **Health Impact:** The model results indicate a reduction in heat stress cases, though the effect might be smaller than the cooling center scenario for severe outcomes. Gradual cooling helps everyone a little (e.g., overall heat illness cases drop by Y%), but it may not completely prevent incidents during extreme heat, especially for the most vulnerable on the hottest days.
+  * **Spatial Distribution:** Benefits of canopy increase are localized to where trees were added. A map of temperature or health outcomes difference (intervention minus baseline) would show cooler temperatures and fewer heat illnesses in the greening target zones.
+  * **Co-benefits:** Mention any side benefits noted (though not the focus, perhaps improved outdoor comfort, reduction in energy use for cooling in those areas).
+  * We also note feasibility: achieving large canopy increases is challenging; lesser increases (e.g., +5%) yielded minimal cooling in the model, reflecting literature that significant canopy (>40%) is needed for strong effects.
+* **Combined Strategy Results (Optimal Mix):** Finally, we examine the scenario combining both strategies (enhanced cooling centers *and* increased canopy):
+
+  * **Synergistic Effects:** The combined scenario yields the greatest reduction in adverse health outcomes. Heat-related illnesses might drop substantially (e.g., by Z% relative to baseline, more than either strategy alone). This is because the interventions operate on different aspects: cooling centers directly protect those most at risk, while tree canopy broadly lowers exposure.
+  * Some agents benefit from both: e.g., an individual without AC in a newly greened neighborhood experiences slightly lower home temperature and also has a closer cooling center available if needed – their risk is dramatically reduced.
+  * **Comparison of Scenarios:** We present a comparison of key metrics across scenarios:
+
+    * Total heat-related hospitalizations and deaths in each scenario.
+    * % of population experiencing high exposure (e.g., hours above a heat index threshold).
+    * Cooling center usage rates.
+    * Possibly, a cost or resource metric (for discussion, e.g., number of new centers vs. number of trees planted) to contextualize efficiency.
+  * The “optimal mix” might be quantified if we explored multiple combinations: for instance, if we varied both interventions, there could be diminishing returns for each. The results might indicate that beyond a certain canopy percentage, adding a cooling center yields more benefit, or vice versa. We highlight the combination that appears most cost-effective or impactful.
+* **Uncertainty and Variability:** (Briefly note, detailed analysis in Sensitivity section later.) We acknowledge there is variability in these outcomes year-to-year (e.g., 2021 might have had a more severe heatwave than 2022). The results reported could be averages or specific to a scenario year like 2021. Also, randomness in agent behavior in the ABM means results are averaged over multiple simulation runs for reliability (include if applicable).
+* *Placeholder Figure 3:* **Results Comparison Chart:** A multi-bar chart or line graph comparing the number of heat-related incidents (and/or deaths) under each scenario (Baseline, Cooling Centers, Greening, Combined). For example, a bar graph with different colored bars for each scenario, showing clearly how the combined strategy has the lowest health impact. Another possible figure is a heat map of the county showing the reduction in heat illness cases in the combined scenario versus baseline.
+* *Placeholder Table 3:* **Scenario Outcome Summary:** A table listing each scenario and key outcome metrics. For example, columns for: Scenario, Average high temperature reduction (°C), % of population using cooling centers, Heat illness cases, Heat deaths (if any), etc. This provides a concise comparison and helps identify which scenario performs best for each metric.
+
+## Validation and Sensitivity Analysis
+
+* **Model Validation:** *(*This section will outline planned validation steps; detailed content to be added later.*)* We intend to compare model outputs against real-world data to ensure credibility of results:
+
+  * *Validation Approach:* For example, compare the simulated heat-related hospitalization counts in baseline 2020–2024 to actual hospital records in Hennepin County for those years. If available, verify spatial patterns (did the model identify the same high-risk neighborhoods that public health records show?).
+  * *External Events:* Validate agent behavior assumptions by checking any survey data (e.g., what fraction of people report using cooling centers during heat waves, compared to model predictions).
+  * This subsection will be expanded with quantitative validation once observational data analysis is completed.
+* **Sensitivity Analysis:** We conduct extensive sensitivity testing to understand how robust the findings are to key assumptions and parameter uncertainties.
+
+  * **Parameters Tested:** Identify critical model parameters to vary:
+
+    * AC ownership rates: e.g., what if the true AC prevalence is lower in some areas than assumed? (Given high AC rates in Minnesota, we test a scenario with even fewer AC to see if interventions become more crucial.)
+    * Cooling center usage probability: the model assumed a certain fraction would attend when available. We vary this to simulate higher or lower public willingness. For instance, if only half as many people use centers as assumed, how much does it reduce the strategy’s efficacy?
+    * Tree canopy cooling effect: there is uncertainty in the exact temperature reduction from additional trees. We try a higher cooling effect (optimistic) and a lower effect (pessimistic) to see how results change. If a smaller cooling (say only 0.5°C reduction for large canopy gains) is reality, nature-based results would be less impactful.
+    * Health risk thresholds: adjust the temperature threshold or risk function for heat illness to see if the model’s outcome counts change significantly (e.g., using a higher threshold for heat stress might reduce total incidents in all scenarios).
+  * **Method:** For each parameter, perform one-at-a-time sensitivity tests (vary one parameter while holding others constant) and/or use a design of experiments for combined effects. Each variant is run through the ABM and outcome metrics are recorded.
+  * **Sensitivity Results:** Summarize how outcomes respond to parameter changes:
+
+    * Identify which parameters the results are most sensitive to. For example, we might find that the **assumed cooling center utilization rate** strongly affects outcome – if actual utilization is much lower, the cooling center strategy benefit drops markedly. Conversely, the model might be less sensitive to the exact tree cooling per % canopy (i.e., even halving the cooling effect still yields some benefit trend).
+    * Present any significant shifts in the “optimal strategy” under different assumptions. (E.g., if AC ownership were nearly universal, the model might show diminishing need for cooling centers, whereas if AC ownership is lower than thought, cooling centers become even more critical.)
+    * We expect that core conclusions (that a combined approach is best) remain consistent under most variations, but the magnitude of benefits can change.
+  * **Robustness:** Discuss any parameters where uncertainty could change a qualitative conclusion. If, for instance, tree planting had virtually no effect in a pessimistic case, one might question investing in it versus more cooling centers – but literature and our sensitivity range suggest tree effects, while variable, are non-zero.
+  * *Placeholder Figure 4:* **Sensitivity Analysis Results Plot:** A chart illustrating the influence of key parameters on an outcome. For example, a tornado diagram showing the change in number of heat illnesses when each parameter is set to its low vs. high value. Alternatively, a line graph for each parameter (x-axis = value of parameter, y-axis = outcome metric) to show trend sensitivity (e.g., graph of heat illnesses vs. % of population using cooling centers).
+  * *Placeholder Table 4:* **Parameter Sensitivity Table:** A table listing each tested parameter, the range tested, and the resulting variation in a key outcome (e.g., heat-related hospitalizations). This provides a quick view of which parameters cause the largest outcome changes.
+
+## Discussion and Conclusion
+
+* **Interpretation of Key Findings:** Summarize what the results indicate about the effectiveness of grey vs. green strategies:
+
+  * Cooling-center interventions (grey infrastructure) can provide immediate, targeted protection for those most at risk (especially the minority without AC or those unable to cool their homes). Our model showed substantial reductions in acute heat illnesses when access to cooling centers was improved.
+  * Nature-based interventions (green infrastructure) offer area-wide cooling benefits that, while more modest per degree, accumulate across the whole population and also improve outdoor comfort. They are less targeted but benefit everyone, including those who might not actively seek relief at a center.
+  * The optimal mix in our study was a **combined approach**, suggesting these strategies are complementary. Cooling centers address short-term acute needs, whereas tree canopy addresses chronic exposure and can reduce overall heat burden, including for people who may never use a cooling center.
+* **Policy Implications:** Discuss how local government and planners in Hennepin County (and similar urban areas) can use these insights:
+
+  * Investments in cooling centers (e.g., extending hours during heat waves, providing transportation to centers, publicizing their availability) could be a highly effective lifesaving measure, particularly during extreme heat spikes. However, efforts must also focus on increasing public uptake (awareness campaigns, ensuring centers are welcoming and accessible as noted in literature).
+  * Meanwhile, urban forestry and greening programs should be pursued for long-term resilience. The results support that while trees alone won’t eliminate heat health risks, increasing canopy cover is a valuable part of the strategy, also bringing co-benefits (improved air quality, mental health, etc.).
+  * Emphasize that these strategies are not either-or: a portfolio of mitigation actions is needed. Our “green or grey” analysis suggests that a balanced approach yields the best health outcomes, which can guide resource allocation (e.g., a heat action plan that includes both expanding cooling infrastructure and aggressive tree planting goals).
+* **Equity Considerations:** The discussion should note how the strategies impact different segments of the population:
+
+  * Cooling centers primarily help those who are aware of and able to reach them; thus outreach should target vulnerable communities (low-income, elderly living alone, homeless populations) and remove barriers (such as providing transit or ensuring centers are culturally appropriate and non-stigmatizing).
+  * Tree planting efforts should prioritize neighborhoods with low existing canopy and high social vulnerability (often communities of color or low-income areas) to address environmental justice (aligning with tree equity goals).
+  * AC ownership programs (e.g., subsidies for low-income households to install AC) could be another complementary strategy outside our two main categories—mention if relevant as an additional grey intervention that might further reduce risk.
+* **Limitations:** Acknowledge limitations of the study and model:
+
+  * **Data Uncertainties:** The synthetic population and AC data involve assumptions; actual individual behaviors during heat events can be more complex. The PRISM temperature data at 800 m may not capture micro-hotspots like specific urban street canyons, and we assumed uniform effects for interventions (e.g., tree cooling effect) which in reality vary with placement and maintenance of trees.
+  * **Behavioral Factors:** Human behavior in extreme heat is hard to predict. Our model used simplified rules for cooling center use and did not include factors like power outages, the influence of social networks, or adaptive behaviors (e.g., people buying AC or fans in response to repeated heatwaves).
+  * **Health Outcome Modeling:** We modeled heat illness risk in a stylized way; real health outcomes depend on factors like acclimatization, hydration, and public health measures (cooling center is one, but also distribution of water, wellness checks, etc., which were not explicitly simulated).
+  * **Scope of Interventions:** The nature-based interventions in the model assume a mature canopy increase which takes years or decades in reality. Thus, time scale differences matter: cooling centers can be ramped up in days, tree planting effects accrue over years. We did not model the temporal rollout of these strategies.
+  * **Generalizability:** Our findings are calibrated to Hennepin County’s climate and demographics; results might differ in other regions (e.g., places with much lower AC prevalence or different urban form).
+* **Future Work:** Suggest directions for future research building on this study:
+
+  * Incorporating **climate change projections**: How might rising baseline temperatures by 2030 or 2050 alter the balance of needed interventions? Future work could run the ABM with projected climate scenarios to test strategy effectiveness under more extreme conditions.
+  * Adding more **adaptive strategies**: e.g., examining outreach programs, personal cooling devices, or “cool roofs” technology as additional measures in the model.
+  * Enhancing **behavioral realism**: Using surveys or empirical data to refine how agents decide to use cooling centers (perhaps integrating human decision models or even machine learning surrogates to capture complexity).
+  * **Cost-Benefit Analysis:** While our study focused on health outcomes, it would be useful to include economic analysis – comparing the cost per averted illness of tree planting vs. running cooling centers, to inform practical policymaking on budget allocation.
+  * **Validation with Empirical Data:** As more data on heat health outcomes and intervention usage become available (e.g., via smart city sensors or public health records), further validation and calibration of the ABM will improve its accuracy.
+* **Conclusion:** We conclude that an integrated approach leveraging both grey and green infrastructure is the most promising path to minimize health impacts of extreme heat in urban areas. In Hennepin County’s context, expanding cooling centers provides immediate protection for high-risk populations, while increasing tree canopy yields broader ambient cooling that benefits the entire community. Rather than viewing these strategies in isolation, cities should implement a coordinated heat adaptation plan. By finding the optimal mix of “green or grey,” communities can significantly reduce heat-related illnesses and save lives during extreme heat events, building resilience against our warming climate. The methodologies and insights from this agent-based modeling study can guide other regions in tailoring heat mitigation strategies to local needs, ultimately contributing to healthier and more heat-resilient cities.

@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.7.29">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Project contributors">
+<meta name="dcterms.date" content="2025-08-27">
+
+<title>Heat Risk ABM Model - Summer 2025 Development Notes</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="abm_model_2025Summer_notes_files/libs/clipboard/clipboard.min.js"></script>
+<script src="abm_model_2025Summer_notes_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="abm_model_2025Summer_notes_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="abm_model_2025Summer_notes_files/libs/quarto-html/popper.min.js"></script>
+<script src="abm_model_2025Summer_notes_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="abm_model_2025Summer_notes_files/libs/quarto-html/anchor.min.js"></script>
+<link href="abm_model_2025Summer_notes_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="abm_model_2025Summer_notes_files/libs/quarto-html/quarto-syntax-highlighting-0815c480559380816a4d1ea211a47e91.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="abm_model_2025Summer_notes_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="abm_model_2025Summer_notes_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="abm_model_2025Summer_notes_files/libs/bootstrap/bootstrap-813c323200a87c37e262811031999de4.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#overview" id="toc-overview" class="nav-link active" data-scroll-target="#overview">Overview</a>
+  <ul class="collapse">
+  <li><a href="#key-improvements-in-2025-version" id="toc-key-improvements-in-2025-version" class="nav-link" data-scroll-target="#key-improvements-in-2025-version">Key Improvements in 2025 Version</a></li>
+  </ul></li>
+  <li><a href="#input-data" id="toc-input-data" class="nav-link" data-scroll-target="#input-data">Input Data</a>
+  <ul class="collapse">
+  <li><a href="#core-datasets" id="toc-core-datasets" class="nav-link" data-scroll-target="#core-datasets">Core Datasets</a>
+  <ul class="collapse">
+  <li><a href="#parcel-data" id="toc-parcel-data" class="nav-link" data-scroll-target="#parcel-data">1. Parcel Data</a></li>
+  <li><a href="#temperature-data-prism" id="toc-temperature-data-prism" class="nav-link" data-scroll-target="#temperature-data-prism">2. Temperature Data (PRISM)</a></li>
+  <li><a href="#air-conditioning-data" id="toc-air-conditioning-data" class="nav-link" data-scroll-target="#air-conditioning-data">3. Air Conditioning Data</a></li>
+  <li><a href="#cooling-centers" id="toc-cooling-centers" class="nav-link" data-scroll-target="#cooling-centers">4. Cooling Centers</a></li>
+  </ul></li>
+  <li><a href="#data-preprocessing" id="toc-data-preprocessing" class="nav-link" data-scroll-target="#data-preprocessing">Data Preprocessing</a>
+  <ul class="collapse">
+  <li><a href="#parcel-data-extraction-01_save_parcels_from_db.py" id="toc-parcel-data-extraction-01_save_parcels_from_db.py" class="nav-link" data-scroll-target="#parcel-data-extraction-01_save_parcels_from_db.py">Parcel Data Extraction (<code>01_save_parcels_from_db.py</code>)</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#prism-temperature-data" id="toc-prism-temperature-data" class="nav-link" data-scroll-target="#prism-temperature-data">PRISM Temperature Data</a>
+  <ul class="collapse">
+  <li><a href="#download-process-oneoffdownload_prism_data.py" id="toc-download-process-oneoffdownload_prism_data.py" class="nav-link" data-scroll-target="#download-process-oneoffdownload_prism_data.py">Download Process (<code>oneoff/download_prism_data.py</code>)</a></li>
+  <li><a href="#processing-pipeline-oneoff02_process_prism_raw_to_intermediate_prism.py" id="toc-processing-pipeline-oneoff02_process_prism_raw_to_intermediate_prism.py" class="nav-link" data-scroll-target="#processing-pipeline-oneoff02_process_prism_raw_to_intermediate_prism.py">Processing Pipeline (<code>oneoff/02_process_prism_raw_to_intermediate_prism.py</code>)</a></li>
+  </ul></li>
+  <li><a href="#main-execution-scripts" id="toc-main-execution-scripts" class="nav-link" data-scroll-target="#main-execution-scripts">Main Execution Scripts</a>
+  <ul class="collapse">
+  <li><a href="#local-execution-run_heat_risk_model_new_ac_data_parallel.py" id="toc-local-execution-run_heat_risk_model_new_ac_data_parallel.py" class="nav-link" data-scroll-target="#local-execution-run_heat_risk_model_new_ac_data_parallel.py">Local Execution: <code>run_heat_risk_model_new_ac_data_parallel.py</code></a>
+  <ul class="collapse">
+  <li><a href="#key-components" id="toc-key-components" class="nav-link" data-scroll-target="#key-components">Key Components</a></li>
+  <li><a href="#configuration-structure" id="toc-configuration-structure" class="nav-link" data-scroll-target="#configuration-structure">Configuration Structure</a></li>
+  <li><a href="#parallel-processing-architecture" id="toc-parallel-processing-architecture" class="nav-link" data-scroll-target="#parallel-processing-architecture">Parallel Processing Architecture</a></li>
+  </ul></li>
+  <li><a href="#msi-execution-run_heat_risk_model_msi_07232025.py" id="toc-msi-execution-run_heat_risk_model_msi_07232025.py" class="nav-link" data-scroll-target="#msi-execution-run_heat_risk_model_msi_07232025.py">MSI Execution: <code>run_heat_risk_model_msi_07232025.py</code></a>
+  <ul class="collapse">
+  <li><a href="#key-differences-from-local-version" id="toc-key-differences-from-local-version" class="nav-link" data-scroll-target="#key-differences-from-local-version">Key Differences from Local Version</a></li>
+  <li><a href="#slurm-array-job-configuration" id="toc-slurm-array-job-configuration" class="nav-link" data-scroll-target="#slurm-array-job-configuration">SLURM Array Job Configuration</a></li>
+  <li><a href="#date-mapping" id="toc-date-mapping" class="nav-link" data-scroll-target="#date-mapping">Date Mapping</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#improvements-over-original-model" id="toc-improvements-over-original-model" class="nav-link" data-scroll-target="#improvements-over-original-model">Improvements Over Original Model</a>
+  <ul class="collapse">
+  <li><a href="#original-model_final_lr_edit_adapt_from_ipynb.qmd" id="toc-original-model_final_lr_edit_adapt_from_ipynb.qmd" class="nav-link" data-scroll-target="#original-model_final_lr_edit_adapt_from_ipynb.qmd">Original: <code>Model_final_LR_edit_adapt_from_ipynb.qmd</code></a></li>
+  <li><a href="#new-model-improvements" id="toc-new-model-improvements" class="nav-link" data-scroll-target="#new-model-improvements">New Model Improvements</a>
+  <ul class="collapse">
+  <li><a href="#performance-enhancements" id="toc-performance-enhancements" class="nav-link" data-scroll-target="#performance-enhancements">1. Performance Enhancements</a></li>
+  <li><a href="#data-integration" id="toc-data-integration" class="nav-link" data-scroll-target="#data-integration">2. Data Integration</a></li>
+  <li><a href="#scalability" id="toc-scalability" class="nav-link" data-scroll-target="#scalability">3. Scalability</a></li>
+  <li><a href="#output-quality" id="toc-output-quality" class="nav-link" data-scroll-target="#output-quality">4. Output Quality</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#results-visualization" id="toc-results-visualization" class="nav-link" data-scroll-target="#results-visualization">Results Visualization</a>
+  <ul class="collapse">
+  <li><a href="#primary-visualization-run_model_results_visualization_dates.py" id="toc-primary-visualization-run_model_results_visualization_dates.py" class="nav-link" data-scroll-target="#primary-visualization-run_model_results_visualization_dates.py">Primary Visualization: <code>run_model_results_visualization_dates.py</code></a>
+  <ul class="collapse">
+  <li><a href="#visualization-types" id="toc-visualization-types" class="nav-link" data-scroll-target="#visualization-types">Visualization Types</a></li>
+  <li><a href="#usage" id="toc-usage" class="nav-link" data-scroll-target="#usage">Usage</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#msi-results-organization" id="toc-msi-results-organization" class="nav-link" data-scroll-target="#msi-results-organization">MSI Results Organization</a>
+  <ul class="collapse">
+  <li><a href="#file-organization-oneoffmsi_results_organize_01_files_folder.py" id="toc-file-organization-oneoffmsi_results_organize_01_files_folder.py" class="nav-link" data-scroll-target="#file-organization-oneoffmsi_results_organize_01_files_folder.py">1. File Organization (<code>oneoff/msi_results_organize_01_files_folder.py</code>)</a></li>
+  <li><a href="#summary-aggregation-oneoffmsi_results_organize_02_alldates_summary_append.py" id="toc-summary-aggregation-oneoffmsi_results_organize_02_alldates_summary_append.py" class="nav-link" data-scroll-target="#summary-aggregation-oneoffmsi_results_organize_02_alldates_summary_append.py">2. Summary Aggregation (<code>oneoff/msi_results_organize_02_alldates_summary_append.py</code>)</a></li>
+  <li><a href="#cooling-center-visits-oneoffmsi_results_organize_03_sim_cool_visits_by_date.py" id="toc-cooling-center-visits-oneoffmsi_results_organize_03_sim_cool_visits_by_date.py" class="nav-link" data-scroll-target="#cooling-center-visits-oneoffmsi_results_organize_03_sim_cool_visits_by_date.py">3. Cooling Center Visits (<code>oneoff/msi_results_organize_03_sim_cool_visits_by_date.py</code>)</a></li>
+  </ul></li>
+  <li><a href="#validation-framework" id="toc-validation-framework" class="nav-link" data-scroll-target="#validation-framework">Validation Framework</a>
+  <ul class="collapse">
+  <li><a href="#overview-1" id="toc-overview-1" class="nav-link" data-scroll-target="#overview-1">Overview</a></li>
+  <li><a href="#validation-scripts" id="toc-validation-scripts" class="nav-link" data-scroll-target="#validation-scripts">Validation Scripts</a>
+  <ul class="collapse">
+  <li><a href="#library-validation-run_validation_2024_library.py" id="toc-library-validation-run_validation_2024_library.py" class="nav-link" data-scroll-target="#library-validation-run_validation_2024_library.py">Library Validation: <code>run_validation_2024_library.py</code></a></li>
+  <li><a href="#cellphone-validation-run_validation_2020_cellphone.py" id="toc-cellphone-validation-run_validation_2020_cellphone.py" class="nav-link" data-scroll-target="#cellphone-validation-run_validation_2020_cellphone.py">Cellphone Validation: <code>run_validation_2020_cellphone.py</code></a></li>
+  <li><a href="#emergency-department-validation-run_validation_2023_2024_ed.py" id="toc-emergency-department-validation-run_validation_2023_2024_ed.py" class="nav-link" data-scroll-target="#emergency-department-validation-run_validation_2023_2024_ed.py">Emergency Department Validation: <code>run_validation_2023_2024_ED.py</code></a></li>
+  </ul></li>
+  <li><a href="#visualization-of-validation-results" id="toc-visualization-of-validation-results" class="nav-link" data-scroll-target="#visualization-of-validation-results">Visualization of Validation Results</a>
+  <ul class="collapse">
+  <li><a href="#library-visualization-visualize_validate_2024_library.py" id="toc-library-visualization-visualize_validate_2024_library.py" class="nav-link" data-scroll-target="#library-visualization-visualize_validate_2024_library.py">Library Visualization: <code>visualize_validate_2024_library.py</code></a></li>
+  <li><a href="#cellphone-visualization-visualize_validate_2020_cellphone.py" id="toc-cellphone-visualization-visualize_validate_2020_cellphone.py" class="nav-link" data-scroll-target="#cellphone-visualization-visualize_validate_2020_cellphone.py">Cellphone Visualization: <code>visualize_validate_2020_cellphone.py</code></a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#detailed-oneoff-scripts-documentation" id="toc-detailed-oneoff-scripts-documentation" class="nav-link" data-scroll-target="#detailed-oneoff-scripts-documentation">Detailed oneoff Scripts Documentation</a>
+  <ul class="collapse">
+  <li><a href="#data-processing-scripts" id="toc-data-processing-scripts" class="nav-link" data-scroll-target="#data-processing-scripts">Data Processing Scripts</a>
+  <ul class="collapse">
+  <li><a href="#msi_results_organize_01_files_folder.py" id="toc-msi_results_organize_01_files_folder.py" class="nav-link" data-scroll-target="#msi_results_organize_01_files_folder.py"><code>msi_results_organize_01_files_folder.py</code></a></li>
+  <li><a href="#msi_results_organize_02_alldates_summary_append.py" id="toc-msi_results_organize_02_alldates_summary_append.py" class="nav-link" data-scroll-target="#msi_results_organize_02_alldates_summary_append.py"><code>msi_results_organize_02_alldates_summary_append.py</code></a></li>
+  <li><a href="#msi_results_organize_03_sim_cool_visits_by_date.py" id="toc-msi_results_organize_03_sim_cool_visits_by_date.py" class="nav-link" data-scroll-target="#msi_results_organize_03_sim_cool_visits_by_date.py"><code>msi_results_organize_03_sim_cool_visits_by_date.py</code></a></li>
+  </ul></li>
+  <li><a href="#figure-generation-scripts" id="toc-figure-generation-scripts" class="nav-link" data-scroll-target="#figure-generation-scripts">Figure Generation Scripts</a>
+  <ul class="collapse">
+  <li><a href="#figures_report_and_slidedeckfigure_03_priority_map.py" id="toc-figures_report_and_slidedeckfigure_03_priority_map.py" class="nav-link" data-scroll-target="#figures_report_and_slidedeckfigure_03_priority_map.py"><code>figures_report_and_slidedeck/figure_03_priority_map.py</code></a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#validate-folder-analysis-scripts" id="toc-validate-folder-analysis-scripts" class="nav-link" data-scroll-target="#validate-folder-analysis-scripts">Validate Folder Analysis Scripts</a>
+  <ul class="collapse">
+  <li><a href="#r-scripts-for-statistical-analysis" id="toc-r-scripts-for-statistical-analysis" class="nav-link" data-scroll-target="#r-scripts-for-statistical-analysis">R Scripts for Statistical Analysis</a>
+  <ul class="collapse">
+  <li><a href="#validateanalysisreg_01_real_visitation_temp_covar.r" id="toc-validateanalysisreg_01_real_visitation_temp_covar.r" class="nav-link" data-scroll-target="#validateanalysisreg_01_real_visitation_temp_covar.r"><code>validate/analysis/reg_01_real_visitation_temp_covar.R</code></a></li>
+  <li><a href="#validateanalysissummary_01_validation_data.r" id="toc-validateanalysissummary_01_validation_data.r" class="nav-link" data-scroll-target="#validateanalysissummary_01_validation_data.r"><code>validate/analysis/summary_01_validation_data.R</code></a></li>
+  </ul></li>
+  <li><a href="#python-analysis-scripts" id="toc-python-analysis-scripts" class="nav-link" data-scroll-target="#python-analysis-scripts">Python Analysis Scripts</a>
+  <ul class="collapse">
+  <li><a href="#validateanalysismerge_simulation_validation.py" id="toc-validateanalysismerge_simulation_validation.py" class="nav-link" data-scroll-target="#validateanalysismerge_simulation_validation.py"><code>validate/analysis/merge_simulation_validation.py</code></a></li>
+  <li><a href="#validateanalysiscalculate_validation_metrics.py" id="toc-validateanalysiscalculate_validation_metrics.py" class="nav-link" data-scroll-target="#validateanalysiscalculate_validation_metrics.py"><code>validate/analysis/calculate_validation_metrics.py</code></a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#output-folder-structure" id="toc-output-folder-structure" class="nav-link" data-scroll-target="#output-folder-structure">Output Folder Structure</a>
+  <ul class="collapse">
+  <li><a href="#model-outputs" id="toc-model-outputs" class="nav-link" data-scroll-target="#model-outputs">Model Outputs</a></li>
+  <li><a href="#key-output-files" id="toc-key-output-files" class="nav-link" data-scroll-target="#key-output-files">Key Output Files</a>
+  <ul class="collapse">
+  <li><a href="#ensemble-shapefile-ensemble_yyyymmdd.shp" id="toc-ensemble-shapefile-ensemble_yyyymmdd.shp" class="nav-link" data-scroll-target="#ensemble-shapefile-ensemble_yyyymmdd.shp">Ensemble Shapefile (<code>ensemble_YYYYMMDD.shp</code>)</a></li>
+  <li><a href="#summary-csv-ensemble_summary_yyyymmdd.csv" id="toc-summary-csv-ensemble_summary_yyyymmdd.csv" class="nav-link" data-scroll-target="#summary-csv-ensemble_summary_yyyymmdd.csv">Summary CSV (<code>ensemble_summary_YYYYMMDD.csv</code>)</a></li>
+  <li><a href="#run-statistics-run_statistics_yyyymmdd.csv" id="toc-run-statistics-run_statistics_yyyymmdd.csv" class="nav-link" data-scroll-target="#run-statistics-run_statistics_yyyymmdd.csv">Run Statistics (<code>run_statistics_YYYYMMDD.csv</code>)</a></li>
+  <li><a href="#metadata-json-metadata_yyyymmdd.json" id="toc-metadata-json-metadata_yyyymmdd.json" class="nav-link" data-scroll-target="#metadata-json-metadata_yyyymmdd.json">Metadata JSON (<code>metadata_YYYYMMDD.json</code>)</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#performance-benchmarks" id="toc-performance-benchmarks" class="nav-link" data-scroll-target="#performance-benchmarks">Performance Benchmarks</a>
+  <ul class="collapse">
+  <li><a href="#local-execution" id="toc-local-execution" class="nav-link" data-scroll-target="#local-execution">Local Execution</a></li>
+  <li><a href="#msi-execution" id="toc-msi-execution" class="nav-link" data-scroll-target="#msi-execution">MSI Execution</a></li>
+  <li><a href="#memory-usage" id="toc-memory-usage" class="nav-link" data-scroll-target="#memory-usage">Memory Usage</a></li>
+  </ul></li>
+  <li><a href="#best-practices-and-tips" id="toc-best-practices-and-tips" class="nav-link" data-scroll-target="#best-practices-and-tips">Best Practices and Tips</a>
+  <ul class="collapse">
+  <li><a href="#data-management" id="toc-data-management" class="nav-link" data-scroll-target="#data-management">Data Management</a></li>
+  <li><a href="#performance-optimization" id="toc-performance-optimization" class="nav-link" data-scroll-target="#performance-optimization">Performance Optimization</a></li>
+  <li><a href="#validation" id="toc-validation" class="nav-link" data-scroll-target="#validation">Validation</a></li>
+  <li><a href="#troubleshooting" id="toc-troubleshooting" class="nav-link" data-scroll-target="#troubleshooting">Troubleshooting</a>
+  <ul class="collapse">
+  <li><a href="#common-issues" id="toc-common-issues" class="nav-link" data-scroll-target="#common-issues">Common Issues</a></li>
+  <li><a href="#debug-mode" id="toc-debug-mode" class="nav-link" data-scroll-target="#debug-mode">Debug Mode</a></li>
+  </ul></li>
+  </ul></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Heat Risk ABM Model - Summer 2025 Development Notes</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Project contributors </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">August 27, 2025</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="overview" class="level1">
+<h1>Overview</h1>
+<p>This document provides comprehensive documentation for the Heat Risk Agent-Based Model (ABM) developed in Summer 2025. The model simulates resident behavior during extreme heat events in Hennepin County, Minnesota, predicting whether individuals stay home or move to cooling centers.</p>
+<section id="key-improvements-in-2025-version" class="level2">
+<h2 class="anchored" data-anchor-id="key-improvements-in-2025-version">Key Improvements in 2025 Version</h2>
+<ul>
+<li><strong>Parallel chunk processing</strong> for improved performance</li>
+<li><strong>External AC data integration</strong> from market-based sources</li>
+<li><strong>SLURM array job support</strong> for MSI supercomputing</li>
+<li><strong>Preprocessed data pipeline</strong> eliminating database dependencies</li>
+<li><strong>PRISM temperature data integration</strong> for accurate heat modeling</li>
+<li><strong>Comprehensive validation framework</strong> against real-world visitation data</li>
+</ul>
+</section>
+</section>
+<section id="input-data" class="level1">
+<h1>Input Data</h1>
+<section id="core-datasets" class="level2">
+<h2 class="anchored" data-anchor-id="core-datasets">Core Datasets</h2>
+<section id="parcel-data" class="level3">
+<h3 class="anchored" data-anchor-id="parcel-data">1. Parcel Data</h3>
+<ul>
+<li><strong>Source</strong>: Hennepin County parcel dataset (~400,000 parcels)</li>
+<li><strong>Format</strong>: PostGIS database or preprocessed pickle file</li>
+<li><strong>Key fields</strong>:
+<ul>
+<li><code>pid</code>: Parcel ID</li>
+<li><code>geometry</code>: Parcel boundaries</li>
+<li><code>medianhhi</code>: Median household income</li>
+<li><code>age</code> demographics: <code>ageunder18</code>, <code>age18_39</code>, <code>age40_64</code>, <code>age65up</code></li>
+<li><code>poptotal</code>: Total population</li>
+<li><code>block_group_id</code>: Census block group identifier</li>
+</ul></li>
+</ul>
+</section>
+<section id="temperature-data-prism" class="level3">
+<h3 class="anchored" data-anchor-id="temperature-data-prism">2. Temperature Data (PRISM)</h3>
+<ul>
+<li><strong>Source</strong>: PRISM Climate Group, Oregon State University</li>
+<li><strong>Resolution</strong>: 800m or 4km grid</li>
+<li><strong>Coverage</strong>: May 1 - September 30 for years 2020, 2021, 2023, 2024</li>
+<li><strong>Variables</strong>: <code>tmax</code>, <code>tmin</code>, <code>tmean</code> (maximum, minimum, mean temperature)</li>
+<li><strong>Format</strong>: GeoTIFF rasters in Celsius (converted to Fahrenheit)</li>
+</ul>
+</section>
+<section id="air-conditioning-data" class="level3">
+<h3 class="anchored" data-anchor-id="air-conditioning-data">3. Air Conditioning Data</h3>
+<ul>
+<li><strong>External source</strong>: <code>data/raw/Parcel_AC/hennepin_parcel_ac_avail.csv</code></li>
+<li><strong>Fields</strong>: <code>pid</code>, <code>ac_available</code> (market-based AC availability)</li>
+<li><strong>Coverage</strong>: 346,704 parcels with external AC data</li>
+<li><strong>Fallback</strong>: Census-based AC probability model</li>
+</ul>
+</section>
+<section id="cooling-centers" class="level3">
+<h3 class="anchored" data-anchor-id="cooling-centers">4. Cooling Centers</h3>
+<ul>
+<li><strong>Source</strong>: Validated cooling center locations</li>
+<li><strong>Fields</strong>: <code>name</code>, <code>geometry</code>, <code>type</code>, <code>validate_tag</code></li>
+<li><strong>Special tags</strong>: Libraries, cooling centers, emergency departments</li>
+</ul>
+</section>
+</section>
+<section id="data-preprocessing" class="level2">
+<h2 class="anchored" data-anchor-id="data-preprocessing">Data Preprocessing</h2>
+<section id="parcel-data-extraction-01_save_parcels_from_db.py" class="level3">
+<h3 class="anchored" data-anchor-id="parcel-data-extraction-01_save_parcels_from_db.py">Parcel Data Extraction (<code>01_save_parcels_from_db.py</code>)</h3>
+<p>The model uses preprocessed parcel data stored as a pickle file to avoid repeated database queries:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Creates: data/preprocessed_data/parcels_prepared.pkl</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Contains: GeoDataFrame with all parcel attributes</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Size: ~200MB</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Load time: &lt;1 second vs 30+ seconds from database</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Key features of preprocessing</strong>: - Extracts parcels with all demographic attributes - Calculates nearest cooling centers for each parcel - Stores cooling center distances - Preserves geometry for spatial operations - Includes metadata with extraction timestamp and version</p>
+<p><strong>Why use pickle files?</strong> - <strong>Speed</strong>: 30x faster loading than database queries - <strong>Portability</strong>: No database credentials needed - <strong>Consistency</strong>: Same data across all runs - <strong>MSI compatibility</strong>: Works on compute nodes without database access</p>
+</section>
+</section>
+</section>
+<section id="prism-temperature-data" class="level1">
+<h1>PRISM Temperature Data</h1>
+<section id="download-process-oneoffdownload_prism_data.py" class="level2">
+<h2 class="anchored" data-anchor-id="download-process-oneoffdownload_prism_data.py">Download Process (<code>oneoff/download_prism_data.py</code>)</h2>
+<p>Downloads daily temperature data from PRISM FTP server:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Configuration</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>YEARS_TO_DOWNLOAD <span class="op">=</span> [<span class="dv">2020</span>, <span class="dv">2021</span>, <span class="dv">2023</span>, <span class="dv">2024</span>]</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>MAX_WORKERS <span class="op">=</span> <span class="dv">8</span>  <span class="co"># Parallel download threads</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Downloads to: data/raw/prism/</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># File format: tmax_prism_YYYYMMDD_800m.tif</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Download specifications</strong>: - <strong>Protocol</strong>: FTP (ftp.prism.oregonstate.edu) - <strong>Data type</strong>: Daily gridded climate data - <strong>Coverage</strong>: Continental US (CONUS) - <strong>Format</strong>: BIL format in ZIP archives, extracted to GeoTIFF</p>
+</section>
+<section id="processing-pipeline-oneoff02_process_prism_raw_to_intermediate_prism.py" class="level2">
+<h2 class="anchored" data-anchor-id="processing-pipeline-oneoff02_process_prism_raw_to_intermediate_prism.py">Processing Pipeline (<code>oneoff/02_process_prism_raw_to_intermediate_prism.py</code>)</h2>
+<p>Processes raw PRISM data for model consumption:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Input: data/raw/prism/tmax_prism_YYYYMMDD_800m.tif</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Output: data/validate_data/intermediate/prism/tmax_hennepin_YYYYMMDD_500m.tif</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Processing steps</strong>: 1. <strong>Reprojection</strong>: Convert to EPSG:26915 (UTM Zone 15N) 2. <strong>Resampling</strong>: Resample to 500m resolution matching reference raster 3. <strong>Clipping</strong>: Crop to Hennepin County boundaries 4. <strong>Unit conversion</strong>: Convert Celsius to Fahrenheit 5. <strong>Validation</strong>: Verify output matches reference specifications</p>
+</section>
+</section>
+<section id="main-execution-scripts" class="level1">
+<h1>Main Execution Scripts</h1>
+<section id="local-execution-run_heat_risk_model_new_ac_data_parallel.py" class="level2">
+<h2 class="anchored" data-anchor-id="local-execution-run_heat_risk_model_new_ac_data_parallel.py">Local Execution: <code>run_heat_risk_model_new_ac_data_parallel.py</code></h2>
+<p>The primary script for local execution with full parallel processing capabilities:</p>
+<section id="key-components" class="level3">
+<h3 class="anchored" data-anchor-id="key-components">Key Components</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> ChunkParallelHeatModel:</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Main model class with chunk-based parallelization"""</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, config):</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.config <span class="op">=</span> config</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.external_ac_lookup <span class="op">=</span> load_external_ac_data()</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.parcels_data <span class="op">=</span> <span class="va">self</span>.load_preprocessed_parcels()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="configuration-structure" class="level3">
+<h3 class="anchored" data-anchor-id="configuration-structure">Configuration Structure</h3>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">'num_runs'</span>: <span class="dv">1000</span>,        <span class="co"># Simulations per date</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">'max_workers'</span>: <span class="dv">30</span>,       <span class="co"># Parallel chunks</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">'temp_dir'</span>: <span class="st">"../../data/validate_data/intermediate/prism"</span>,</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">'dates'</span>: [<span class="st">'20240601'</span>, <span class="st">'20240701'</span>],  <span class="co"># Dates to process</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">'use_external_ac'</span>: <span class="va">True</span>  <span class="co"># Use market-based AC data</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="parallel-processing-architecture" class="level3">
+<h3 class="anchored" data-anchor-id="parallel-processing-architecture">Parallel Processing Architecture</h3>
+<p>The model divides parcels into chunks for parallel processing:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 400,000 parcels ÷ 30 workers = ~13,333 parcels per chunk</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Each chunk processes independently</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Results merged after completion</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Process flow</strong>: 1. Load preprocessed parcel data 2. Extract temperatures from PRISM raster 3. Split parcels into chunks 4. Process chunks in parallel using ProcessPoolExecutor 5. Aggregate results across chunks 6. Repeat for multiple runs (ensemble approach) 7. Calculate statistics and save outputs</p>
+</section>
+</section>
+<section id="msi-execution-run_heat_risk_model_msi_07232025.py" class="level2">
+<h2 class="anchored" data-anchor-id="msi-execution-run_heat_risk_model_msi_07232025.py">MSI Execution: <code>run_heat_risk_model_msi_07232025.py</code></h2>
+<p>Optimized version for Minnesota Supercomputing Institute:</p>
+<section id="key-differences-from-local-version" class="level3">
+<h3 class="anchored" data-anchor-id="key-differences-from-local-version">Key Differences from Local Version</h3>
+<ul>
+<li><strong>SLURM integration</strong>: Reads <code>SLURM_ARRAY_TASK_ID</code> from environment</li>
+<li><strong>Single date processing</strong>: Each job processes one date</li>
+<li><strong>Production configuration</strong>: Hardcoded 1000 runs</li>
+<li><strong>Memory optimization</strong>: Garbage collection after each date</li>
+<li><strong>Robust error handling</strong>: Continues on individual date failures</li>
+</ul>
+</section>
+<section id="slurm-array-job-configuration" class="level3">
+<h3 class="anchored" data-anchor-id="slurm-array-job-configuration">SLURM Array Job Configuration</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co">#SBATCH --array=0-367        # 368 total dates</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="co">#SBATCH --ntasks=32          # 32 cores per job</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="co">#SBATCH --mem=128G           # 128GB memory</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="co">#SBATCH --time=48:00:00      # 48 hour limit</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="date-mapping" class="level3">
+<h3 class="anchored" data-anchor-id="date-mapping">Date Mapping</h3>
+<div class="sourceCode" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Array index 0-30: July 2020 (31 days)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Array index 31-61: July 2021 (31 days)</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Array index 62-214: May-Sept 2023 (153 days)</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Array index 215-367: May-Sept 2024 (153 days)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="improvements-over-original-model" class="level1">
+<h1>Improvements Over Original Model</h1>
+<section id="original-model_final_lr_edit_adapt_from_ipynb.qmd" class="level2">
+<h2 class="anchored" data-anchor-id="original-model_final_lr_edit_adapt_from_ipynb.qmd">Original: <code>Model_final_LR_edit_adapt_from_ipynb.qmd</code></h2>
+<p><strong>Limitations</strong>: - Sequential processing (5-10 minutes per run) - Database dependency for each run - Limited to 5 ensemble runs - Manual temperature raster selection - No external AC data integration</p>
+</section>
+<section id="new-model-improvements" class="level2">
+<h2 class="anchored" data-anchor-id="new-model-improvements">New Model Improvements</h2>
+<section id="performance-enhancements" class="level3">
+<h3 class="anchored" data-anchor-id="performance-enhancements">1. Performance Enhancements</h3>
+<ul>
+<li><strong>30x faster</strong>: Parallel chunk processing</li>
+<li><strong>Preprocessed data</strong>: Eliminate database overhead</li>
+<li><strong>Batch processing</strong>: Multiple dates in single execution</li>
+<li><strong>Memory efficient</strong>: Streaming results to disk</li>
+</ul>
+</section>
+<section id="data-integration" class="level3">
+<h3 class="anchored" data-anchor-id="data-integration">2. Data Integration</h3>
+<ul>
+<li><strong>External AC data</strong>: Market-based AC availability</li>
+<li><strong>PRISM integration</strong>: Automated temperature data pipeline</li>
+<li><strong>Validation framework</strong>: Compare against real visitation</li>
+</ul>
+</section>
+<section id="scalability" class="level3">
+<h3 class="anchored" data-anchor-id="scalability">3. Scalability</h3>
+<ul>
+<li><strong>SLURM support</strong>: Process 368 dates simultaneously</li>
+<li><strong>Configurable workers</strong>: Scale from laptop to HPC</li>
+<li><strong>Ensemble size</strong>: 1000 runs vs 5 runs</li>
+</ul>
+</section>
+<section id="output-quality" class="level3">
+<h3 class="anchored" data-anchor-id="output-quality">4. Output Quality</h3>
+<ul>
+<li><strong>Comprehensive statistics</strong>: Per-run and ensemble metrics</li>
+<li><strong>Multiple formats</strong>: Shapefile, CSV, JSON metadata</li>
+<li><strong>Organized structure</strong>: Year/date folder hierarchy</li>
+</ul>
+</section>
+</section>
+</section>
+<section id="results-visualization" class="level1">
+<h1>Results Visualization</h1>
+<section id="primary-visualization-run_model_results_visualization_dates.py" class="level2">
+<h2 class="anchored" data-anchor-id="primary-visualization-run_model_results_visualization_dates.py">Primary Visualization: <code>run_model_results_visualization_dates.py</code></h2>
+<p>Creates comprehensive visualizations of model outputs:</p>
+<section id="visualization-types" class="level3">
+<h3 class="anchored" data-anchor-id="visualization-types">Visualization Types</h3>
+<ol type="1">
+<li><strong>Movement Probability Maps</strong>
+<ul>
+<li>Choropleth maps showing probability of movement</li>
+<li>Color scale: Blue (low) to Red (high probability)</li>
+<li>Census tract aggregation for clarity</li>
+</ul></li>
+<li><strong>Cooling Center Choice Maps</strong>
+<ul>
+<li>Shows which cooling center each parcel chose</li>
+<li>Color-coded by destination</li>
+<li>Includes center locations as points</li>
+</ul></li>
+<li><strong>Decision Stability Analysis</strong>
+<ul>
+<li>Histogram of decision consistency across runs</li>
+<li>Identifies areas with uncertain outcomes</li>
+<li>Spatial map of stability scores</li>
+</ul></li>
+<li><strong>Temperature Distribution</strong>
+<ul>
+<li>Histogram of parcel temperatures</li>
+<li>Relationship between temperature and movement</li>
+<li>Spatial temperature patterns</li>
+</ul></li>
+</ol>
+</section>
+<section id="usage" class="level3">
+<h3 class="anchored" data-anchor-id="usage">Usage</h3>
+<div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize specific dates</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>python run_model_results_visualization_dates.py <span class="op">\</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">--</span>dates <span class="dv">20240601</span> <span class="dv">20240701</span> <span class="op">\</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    <span class="op">--</span>output<span class="op">-</span><span class="bu">dir</span> ..<span class="op">/</span>..<span class="op">/</span>output<span class="op">/</span>visualizations</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="msi-results-organization" class="level1">
+<h1>MSI Results Organization</h1>
+<p>After running models on MSI, three organization scripts process the distributed outputs:</p>
+<section id="file-organization-oneoffmsi_results_organize_01_files_folder.py" class="level2">
+<h2 class="anchored" data-anchor-id="file-organization-oneoffmsi_results_organize_01_files_folder.py">1. File Organization (<code>oneoff/msi_results_organize_01_files_folder.py</code>)</h2>
+<p>Reorganizes MSI job outputs into year-based structure:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Input structure:</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co"># msi_runs_07262025/</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="co">#   ├── trial_*_prod_job0/20200701/</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="co">#   ├── trial_*_prod_job1/20200702/</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="co">#   └── ...</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Output structure:</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="co"># geometric_model_1000runs/</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="co">#   ├── 2020/</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="co">#   │   ├── 20200701/</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="co">#   │   └── 20200702/</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="co">#   ├── 2021/</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="co">#   └── ...</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="summary-aggregation-oneoffmsi_results_organize_02_alldates_summary_append.py" class="level2">
+<h2 class="anchored" data-anchor-id="summary-aggregation-oneoffmsi_results_organize_02_alldates_summary_append.py">2. Summary Aggregation (<code>oneoff/msi_results_organize_02_alldates_summary_append.py</code>)</h2>
+<p>Combines individual date summaries:</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reads: 368 individual combined_summary_all_dates.csv files</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Creates:</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co">#   - combined_summary_all_years.csv (all dates)</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co">#   - YYYY/combined_summary_all_dates.csv (per year)</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="co">#   - README files with statistics</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="cooling-center-visits-oneoffmsi_results_organize_03_sim_cool_visits_by_date.py" class="level2">
+<h2 class="anchored" data-anchor-id="cooling-center-visits-oneoffmsi_results_organize_03_sim_cool_visits_by_date.py">3. Cooling Center Visits (<code>oneoff/msi_results_organize_03_sim_cool_visits_by_date.py</code>)</h2>
+<p>Extracts cooling center visitation patterns:</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Processes ensemble_summary_YYYYMMDD.csv files</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Creates: cooling_center_visits_by_date.csv</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Contains: Daily visits per cooling center from simulations</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+<section id="validation-framework" class="level1">
+<h1>Validation Framework</h1>
+<section id="overview-1" class="level2">
+<h2 class="anchored" data-anchor-id="overview-1">Overview</h2>
+<p>The validation framework compares model predictions against real-world visitation data from three sources:</p>
+<ol type="1">
+<li><strong>Library visits</strong> (2024)</li>
+<li><strong>Cellphone mobility data</strong> (2020)</li>
+<li><strong>Emergency department encounters</strong> (2023-2024)</li>
+</ol>
+</section>
+<section id="validation-scripts" class="level2">
+<h2 class="anchored" data-anchor-id="validation-scripts">Validation Scripts</h2>
+<section id="library-validation-run_validation_2024_library.py" class="level3">
+<h3 class="anchored" data-anchor-id="library-validation-run_validation_2024_library.py">Library Validation: <code>run_validation_2024_library.py</code></h3>
+<p>Validates model predictions against actual library visitation data:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> LibraryValidation2024:</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Compare simulated visits to actual library visits"""</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>):</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.heat_dates <span class="op">=</span> <span class="va">self</span>.load_heat_dates()  <span class="co"># Official heat advisory days</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.library_data <span class="op">=</span> <span class="va">self</span>.load_library_visits()</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.ensemble_results <span class="op">=</span> <span class="va">self</span>.load_model_results()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Key metrics</strong>: - <strong>Correlation</strong>: Pearson correlation between predicted and actual visits - <strong>RMSE</strong>: Root mean square error - <strong>Bias</strong>: Systematic over/under-prediction - <strong>Peak detection</strong>: Ability to identify high-visitation days</p>
+</section>
+<section id="cellphone-validation-run_validation_2020_cellphone.py" class="level3">
+<h3 class="anchored" data-anchor-id="cellphone-validation-run_validation_2020_cellphone.py">Cellphone Validation: <code>run_validation_2020_cellphone.py</code></h3>
+<p>Validates using SafeGraph mobility patterns:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Data source: SafeGraph cellphone mobility data</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Coverage: July 2020 (COVID-19 period)</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Locations: Validated cooling centers</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Key considerations:</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="co"># - COVID-19 impacts on mobility patterns</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="co"># - Reduced capacity at cooling centers</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="co"># - Different demographic patterns</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Validation process</strong>: 1. Load ensemble results for July 2020 2. Extract simulated visits per cooling center 3. Compare with SafeGraph visit counts 4. Separate heat vs non-heat days 5. Calculate correlation metrics</p>
+</section>
+<section id="emergency-department-validation-run_validation_2023_2024_ed.py" class="level3">
+<h3 class="anchored" data-anchor-id="emergency-department-validation-run_validation_2023_2024_ed.py">Emergency Department Validation: <code>run_validation_2023_2024_ED.py</code></h3>
+<p>Validates against heat-related ED visits:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Data: Heat-related ICD codes from hospital records</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Coverage: May-September 2023-2024</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Metric: Daily ED encounters</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Heat-related conditions:</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="co"># - Heat exhaustion</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="co"># - Heat stroke</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="co"># - Dehydration</span></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="co"># - Related complications</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+<section id="visualization-of-validation-results" class="level2">
+<h2 class="anchored" data-anchor-id="visualization-of-validation-results">Visualization of Validation Results</h2>
+<section id="library-visualization-visualize_validate_2024_library.py" class="level3">
+<h3 class="anchored" data-anchor-id="library-visualization-visualize_validate_2024_library.py">Library Visualization: <code>visualize_validate_2024_library.py</code></h3>
+<p>Creates comprehensive validation visualizations:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> create_validation_plots():</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Generate validation analysis plots"""</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 1. Scatter plot: Predicted vs Actual</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 2. Time series: Daily comparison</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 3. Spatial map: Performance by location</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 4. Residual analysis: Error patterns</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 5. Heat vs non-heat comparison</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Output plots</strong>: - <code>scatter_predicted_vs_actual.png</code>: Correlation visualization - <code>timeseries_comparison.png</code>: Daily patterns - <code>spatial_performance_map.png</code>: Geographic accuracy - <code>residual_histogram.png</code>: Error distribution</p>
+</section>
+<section id="cellphone-visualization-visualize_validate_2020_cellphone.py" class="level3">
+<h3 class="anchored" data-anchor-id="cellphone-visualization-visualize_validate_2020_cellphone.py">Cellphone Visualization: <code>visualize_validate_2020_cellphone.py</code></h3>
+<p>Similar structure with COVID-19 adjustments:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Special considerations:</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co"># - Normalize for reduced overall mobility</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="co"># - Account for capacity restrictions</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="co"># - Compare relative patterns vs absolute numbers</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="detailed-oneoff-scripts-documentation" class="level1">
+<h1>Detailed oneoff Scripts Documentation</h1>
+<section id="data-processing-scripts" class="level2">
+<h2 class="anchored" data-anchor-id="data-processing-scripts">Data Processing Scripts</h2>
+<section id="msi_results_organize_01_files_folder.py" class="level3">
+<h3 class="anchored" data-anchor-id="msi_results_organize_01_files_folder.py"><code>msi_results_organize_01_files_folder.py</code></h3>
+<p><strong>Purpose</strong>: Reorganize MSI job outputs into logical year/date structure</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Key functions:</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> organize_by_year(source_dir, dest_dir):</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Move date folders to year-based structure"""</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Pattern matching: YYYYMMDD folders</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Destination: YYYY/YYYYMMDD/</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Preserves all contents</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Usage scenario</strong>: - After MSI array jobs complete - Before running summary aggregation - Handles 368 job folders → 4 year folders</p>
+</section>
+<section id="msi_results_organize_02_alldates_summary_append.py" class="level3">
+<h3 class="anchored" data-anchor-id="msi_results_organize_02_alldates_summary_append.py"><code>msi_results_organize_02_alldates_summary_append.py</code></h3>
+<p><strong>Purpose</strong>: Aggregate statistics across all dates</p>
+<div class="sourceCode" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> aggregate_summaries():</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Combine individual date summaries"""</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Reads: combined_summary_all_dates.csv from each job</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Aggregates: Movement rates, temperature stats, stability</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Groups by: Year, month, heat advisory status</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Output structure</strong>:</p>
+<pre><code>combined_summary_all_years.csv:
+- date, avg_temperature, moved_pct, stayed_home_pct
+- decision_stability, ac_external_pct, convergence_time
+- min_temp, max_temp, std_temp</code></pre>
+</section>
+<section id="msi_results_organize_03_sim_cool_visits_by_date.py" class="level3">
+<h3 class="anchored" data-anchor-id="msi_results_organize_03_sim_cool_visits_by_date.py"><code>msi_results_organize_03_sim_cool_visits_by_date.py</code></h3>
+<p><strong>Purpose</strong>: Extract cooling center utilization patterns</p>
+<div class="sourceCode" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> extract_cooling_visits():</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Count visits per cooling center per date"""</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Process: ensemble_summary_YYYYMMDD.csv files</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Extract: cooling_center column</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Aggregate: Visits per center per date</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<p><strong>Output format</strong>:</p>
+<pre class="csv"><code>date,cooling_center,simulated_visits,capacity_utilization
+20240601,"Brooklyn Park Library",1250,0.45
+20240601,"North Regional Library",890,0.62</code></pre>
+</section>
+</section>
+<section id="figure-generation-scripts" class="level2">
+<h2 class="anchored" data-anchor-id="figure-generation-scripts">Figure Generation Scripts</h2>
+<section id="figures_report_and_slidedeckfigure_03_priority_map.py" class="level3">
+<h3 class="anchored" data-anchor-id="figures_report_and_slidedeckfigure_03_priority_map.py"><code>figures_report_and_slidedeck/figure_03_priority_map.py</code></h3>
+<p>Creates priority area maps for intervention:</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> create_priority_map():</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Generate heat vulnerability priority maps"""</span></span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Factors:</span></span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Income level (lower = higher priority)</span></span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Elderly population (higher = higher priority)</span></span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - AC availability (lower = higher priority)</span></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Distance to cooling (further = higher priority)</span></span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Weight scenarios:</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Equal weights</span></span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - AC-focused</span></span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Elderly-focused</span></span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Economic-focused</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="validate-folder-analysis-scripts" class="level1">
+<h1>Validate Folder Analysis Scripts</h1>
+<section id="r-scripts-for-statistical-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="r-scripts-for-statistical-analysis">R Scripts for Statistical Analysis</h2>
+<section id="validateanalysisreg_01_real_visitation_temp_covar.r" class="level3">
+<h3 class="anchored" data-anchor-id="validateanalysisreg_01_real_visitation_temp_covar.r"><code>validate/analysis/reg_01_real_visitation_temp_covar.R</code></h3>
+<p>Regression analysis of temperature-visitation relationship:</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Linear models with robust standard errors</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Y = visits, X = temperature + controls</span></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Model specifications:</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Simple: visits ~ temperature</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. With controls: visits ~ temp + day_of_week + month</span></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Non-linear: visits ~ temp + temp^2</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. Threshold: visits ~ I(temp &gt; 90)</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Output: Regression tables with coefficients and p-values</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="validateanalysissummary_01_validation_data.r" class="level3">
+<h3 class="anchored" data-anchor-id="validateanalysissummary_01_validation_data.r"><code>validate/analysis/summary_01_validation_data.R</code></h3>
+<p>Summary statistics of validation datasets:</p>
+<div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Descriptive statistics by:</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a><span class="co"># - Data source (library, cellphone, ED)</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="co"># - Time period</span></span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a><span class="co"># - Location type</span></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a><span class="co"># - Heat advisory status</span></span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Key metrics:</span></span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a><span class="co"># - Mean, median, SD of visits</span></span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a><span class="co"># - Peak visitation days</span></span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a><span class="co"># - Capacity utilization rates</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+<section id="python-analysis-scripts" class="level2">
+<h2 class="anchored" data-anchor-id="python-analysis-scripts">Python Analysis Scripts</h2>
+<section id="validateanalysismerge_simulation_validation.py" class="level3">
+<h3 class="anchored" data-anchor-id="validateanalysismerge_simulation_validation.py"><code>validate/analysis/merge_simulation_validation.py</code></h3>
+<p>Merges simulation outputs with validation data:</p>
+<div class="sourceCode" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> merge_datasets():</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Align simulation and validation data"""</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Match by:</span></span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Date</span></span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Cooling center ID</span></span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Time of day (if available)</span></span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Handle:</span></span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Missing data</span></span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Name variations</span></span>
+<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a>    <span class="co"># - Coordinate differences</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="validateanalysiscalculate_validation_metrics.py" class="level3">
+<h3 class="anchored" data-anchor-id="validateanalysiscalculate_validation_metrics.py"><code>validate/analysis/calculate_validation_metrics.py</code></h3>
+<p>Computes validation performance metrics:</p>
+<div class="sourceCode" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> calculate_metrics(predicted, actual):</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Calculate validation metrics"""</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {</span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>        <span class="st">'rmse'</span>: root_mean_square_error(predicted, actual),</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>        <span class="st">'mae'</span>: mean_absolute_error(predicted, actual),</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>        <span class="st">'correlation'</span>: pearson_correlation(predicted, actual),</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>        <span class="st">'bias'</span>: mean(predicted <span class="op">-</span> actual),</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>        <span class="st">'relative_error'</span>: mean(<span class="bu">abs</span>(predicted <span class="op">-</span> actual) <span class="op">/</span> actual),</span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>        <span class="st">'peak_accuracy'</span>: peak_detection_accuracy(predicted, actual)</span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>    }</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="output-folder-structure" class="level1">
+<h1>Output Folder Structure</h1>
+<section id="model-outputs" class="level2">
+<h2 class="anchored" data-anchor-id="model-outputs">Model Outputs</h2>
+<pre><code>output/
+├── results/
+│   ├── trial_YYYYMMDD_HHMMSS/          # Individual model run
+│   │   ├── 20240601/                    # Date folder
+│   │   │   ├── ensemble_20240601.shp    # GIS shapefile
+│   │   │   ├── ensemble_summary_20240601.csv
+│   │   │   ├── run_statistics_20240601.csv
+│   │   │   └── metadata_20240601.json
+│   │   └── combined_summary_all_dates.csv
+│   │
+│   └── geometric_model_1000runs/        # MSI organized results
+│       ├── 2020/
+│       ├── 2021/
+│       ├── 2023/
+│       └── 2024/
+│
+├── validate/
+│   ├── validation_comparison_YYYYMMDD.csv
+│   ├── validation_statistics_YYYYMMDD.csv
+│   └── visualizations/
+│       ├── scatter_plots/
+│       ├── time_series/
+│       └── spatial_maps/
+│
+└── figures/
+    ├── priority_maps/
+    ├── temperature_distributions/
+    └── movement_patterns/</code></pre>
+</section>
+<section id="key-output-files" class="level2">
+<h2 class="anchored" data-anchor-id="key-output-files">Key Output Files</h2>
+<section id="ensemble-shapefile-ensemble_yyyymmdd.shp" class="level3">
+<h3 class="anchored" data-anchor-id="ensemble-shapefile-ensemble_yyyymmdd.shp">Ensemble Shapefile (<code>ensemble_YYYYMMDD.shp</code>)</h3>
+<p>GeoDataFrame with parcel-level results: - <code>pid</code>: Parcel identifier - <code>geometry</code>: Parcel boundaries - <code>temperature</code>: Extracted temperature - <code>prob_move_mean</code>: Average movement probability - <code>decision_majority</code>: Final decision (stay/move) - <code>decision_stability</code>: Consistency across runs - <code>cooling_center</code>: Chosen destination if moving</p>
+</section>
+<section id="summary-csv-ensemble_summary_yyyymmdd.csv" class="level3">
+<h3 class="anchored" data-anchor-id="summary-csv-ensemble_summary_yyyymmdd.csv">Summary CSV (<code>ensemble_summary_YYYYMMDD.csv</code>)</h3>
+<p>Detailed statistics per parcel: - All shapefile fields - <code>run_*_decision</code>: Individual run decisions - <code>run_*_probability</code>: Individual run probabilities - <code>convergence_iteration</code>: When decision stabilized - <code>ac_source</code>: External vs database</p>
+</section>
+<section id="run-statistics-run_statistics_yyyymmdd.csv" class="level3">
+<h3 class="anchored" data-anchor-id="run-statistics-run_statistics_yyyymmdd.csv">Run Statistics (<code>run_statistics_YYYYMMDD.csv</code>)</h3>
+<p>Aggregate metrics per simulation run: - <code>run_id</code>: Simulation identifier - <code>parcels_moved</code>: Count of moving parcels - <code>parcels_stayed</code>: Count of staying parcels - <code>mean_probability</code>: Average movement probability - <code>processing_time</code>: Execution duration - <code>memory_usage</code>: Peak memory consumption</p>
+</section>
+<section id="metadata-json-metadata_yyyymmdd.json" class="level3">
+<h3 class="anchored" data-anchor-id="metadata-json-metadata_yyyymmdd.json">Metadata JSON (<code>metadata_YYYYMMDD.json</code>)</h3>
+<p>Configuration and execution details:</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"date"</span><span class="fu">:</span> <span class="st">"20240601"</span><span class="fu">,</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"num_runs"</span><span class="fu">:</span> <span class="dv">1000</span><span class="fu">,</span></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"num_workers"</span><span class="fu">:</span> <span class="dv">30</span><span class="fu">,</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"temperature_source"</span><span class="fu">:</span> <span class="st">"prism"</span><span class="fu">,</span></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"ac_data_source"</span><span class="fu">:</span> <span class="st">"external"</span><span class="fu">,</span></span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"processing_time_seconds"</span><span class="fu">:</span> <span class="fl">1234.56</span><span class="fu">,</span></span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"model_version"</span><span class="fu">:</span> <span class="st">"2025_summer"</span><span class="fu">,</span></span>
+<span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"parcels_processed"</span><span class="fu">:</span> <span class="dv">399640</span><span class="fu">,</span></span>
+<span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">"convergence_achieved"</span><span class="fu">:</span> <span class="kw">true</span></span>
+<span id="cb29-11"><a href="#cb29-11" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+</section>
+</section>
+<section id="performance-benchmarks" class="level1">
+<h1>Performance Benchmarks</h1>
+<section id="local-execution" class="level2">
+<h2 class="anchored" data-anchor-id="local-execution">Local Execution</h2>
+<p><strong>Hardware</strong>: 32-core workstation, 128GB RAM</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Metric</th>
+<th>Original Model</th>
+<th>New Parallel Model</th>
+<th>Improvement</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1 run, 1 date</td>
+<td>5-10 minutes</td>
+<td>15 seconds</td>
+<td>20-40x</td>
+</tr>
+<tr class="even">
+<td>5 runs, 1 date</td>
+<td>25-50 minutes</td>
+<td>45 seconds</td>
+<td>33-66x</td>
+</tr>
+<tr class="odd">
+<td>1000 runs, 1 date</td>
+<td>Not feasible</td>
+<td>25 minutes</td>
+<td>Enabled</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="msi-execution" class="level2">
+<h2 class="anchored" data-anchor-id="msi-execution">MSI Execution</h2>
+<p><strong>Configuration</strong>: 32 cores, 128GB RAM per node</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Task</th>
+<th>Duration</th>
+<th>Throughput</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1000 runs, 1 date</td>
+<td>24-36 hours</td>
+<td>~30 runs/hour</td>
+</tr>
+<tr class="even">
+<td>Full year (153 dates)</td>
+<td>48 hours/date</td>
+<td>153 parallel jobs</td>
+</tr>
+<tr class="odd">
+<td>Complete dataset (368 dates)</td>
+<td>2-3 days total</td>
+<td>368 parallel jobs</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="memory-usage" class="level2">
+<h2 class="anchored" data-anchor-id="memory-usage">Memory Usage</h2>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Component</th>
+<th>Memory Usage</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Preprocessed parcels</td>
+<td>~200 MB</td>
+</tr>
+<tr class="even">
+<td>Temperature raster</td>
+<td>~50 MB</td>
+</tr>
+<tr class="odd">
+<td>Per-run results</td>
+<td>~150 MB</td>
+</tr>
+<tr class="even">
+<td>Final ensemble</td>
+<td>~500 MB</td>
+</tr>
+<tr class="odd">
+<td>Peak total</td>
+<td>~2-3 GB</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="best-practices-and-tips" class="level1">
+<h1>Best Practices and Tips</h1>
+<section id="data-management" class="level2">
+<h2 class="anchored" data-anchor-id="data-management">Data Management</h2>
+<ol type="1">
+<li><strong>Always use preprocessed parcels</strong> - Don’t query database repeatedly</li>
+<li><strong>Process dates in batches</strong> - Reduce I/O overhead</li>
+<li><strong>Clean up intermediate files</strong> - Prevent disk space issues</li>
+<li><strong>Version control outputs</strong> - Use timestamp folders</li>
+</ol>
+</section>
+<section id="performance-optimization" class="level2">
+<h2 class="anchored" data-anchor-id="performance-optimization">Performance Optimization</h2>
+<ol type="1">
+<li><strong>Chunk size tuning</strong> - Balance between parallelism and overhead</li>
+<li><strong>Worker count</strong> - Use n_cores - 2 for stability</li>
+<li><strong>Memory management</strong> - Clear objects after processing</li>
+<li><strong>Disk I/O</strong> - Use SSD for temporary files</li>
+</ol>
+</section>
+<section id="validation" class="level2">
+<h2 class="anchored" data-anchor-id="validation">Validation</h2>
+<ol type="1">
+<li><strong>Check convergence</strong> - Ensure decisions stabilize</li>
+<li><strong>Verify temperatures</strong> - Confirm Fahrenheit conversion</li>
+<li><strong>Validate AC data</strong> - Check coverage percentage</li>
+<li><strong>Compare distributions</strong> - Movement rates should be realistic</li>
+</ol>
+</section>
+<section id="troubleshooting" class="level2">
+<h2 class="anchored" data-anchor-id="troubleshooting">Troubleshooting</h2>
+<section id="common-issues" class="level3">
+<h3 class="anchored" data-anchor-id="common-issues">Common Issues</h3>
+<p><strong>Issue</strong>: “Preprocessed parcels file not found” - <strong>Solution</strong>: Run <code>01_save_parcels_from_db.py</code> first</p>
+<p><strong>Issue</strong>: “Temperature raster missing for date” - <strong>Solution</strong>: Check PRISM data download and processing</p>
+<p><strong>Issue</strong>: “Memory error during parallel processing” - <strong>Solution</strong>: Reduce worker count or chunk size</p>
+<p><strong>Issue</strong>: “SLURM job timeout” - <strong>Solution</strong>: Request more time or reduce runs per job</p>
+</section>
+<section id="debug-mode" class="level3">
+<h3 class="anchored" data-anchor-id="debug-mode">Debug Mode</h3>
+<p>Enable detailed logging:</p>
+<div class="sourceCode" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> logging</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.DEBUG)</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="co"># In config:</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>config[<span class="st">'debug'</span>] <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>config[<span class="st">'verbose'</span>] <span class="op">=</span> <span class="va">True</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<hr>
+<p><em>This documentation reflects the model state as of Summer 2025. For updates, see the GitHub repository.</em></p>
+</section>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

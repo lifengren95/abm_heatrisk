@@ -1,0 +1,66 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: ArcGISPro
+    language: Python
+    name: python3
+---
+
+```{python}
+import arcpy
+from arcpy import env, mp
+import pandas as pd
+import requests
+import os
+import zipfile
+import numpy as np
+
+dem_url = r'https://resources.gisdata.mn.gov/pub/gdrs/data/pub/us_mn_state_dnr/elev_30m_digital_elevation_model/fgdb_elev_30m_digital_elevation_model.zip'
+out_dir = r'./data/qaqc'
+  
+output_crs = arcpy.SpatialReference(26915)
+output_dem = os.path.join(out_dir, 'reprojected_dem.tif')
+```
+
+```{python}
+def download_dem(url, save_path):
+    response = requests.get(url, stream=True)
+    if response.status_code == 200:
+        with open(save_path, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=1024):
+                file.write(chunk)
+        print(f"Downloaded: {save_path}")
+    else:
+        print(f"Failed to download: {url}")
+    with zipfile.ZipFile(save_path, 'r') as zip_ref:
+        zip_ref.extractall(os.path.join(out_dir, 'dem'))
+
+def crs_qa_step(dem, output_dem):
+    desc = arcpy.Describe(dem)
+    current_crs = desc.spatialReference
+
+    # Check if the CRS is the desired one
+    if current_crs != output_crs:
+        print(f"Reprojecting {dem} from {current_crs.name} to {output_crs.name}")
+        # Reproject the feature class
+        arcpy.Project_management(dem, output_dem, output_crs)
+    else:
+        print(f"{fc} is already in the desired CRS ({output_crs.name})")
+```
+
+```{python}
+# Download the .tif file
+download_dem(dem_url, os.path.join(out_dir, 'dem.zip'))
+dem_path = os.path.join(out_dir, r'dem', 'elev_30m_digital_elevation_model.gdb', r'digital_elevation_model_30m')
+```
+
+```{python}
+crs_qa_step(dem_path, output_dem)
+```
+

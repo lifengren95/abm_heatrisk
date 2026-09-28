@@ -1,0 +1,647 @@
+---
+title: '**Extreme Heat Event Risk Model**'
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: rcp_heat
+    language: python
+    name: python3
+---
+
+
+
+### Overview
+This notebook runs an agent-based model that simulates how residents respond to extreme heat events in urban areas. The model predicts whether individuals will stay home or move to cooling centers based on various factors including temperature, demographics, and access air conditioning in their home. 
+
+### What this notebook does:
+- Runs the agent-based model 5 times with the same temperature raster input
+- Calculates the average probability of movement across all runs for each parcel
+- Uses majority voting to determine the final decision (stay vs. move) for each parcel
+- Visualizes the results both statistically and spatially
+- Analyzes the stability of decisions across model runs
+- Exports the ensemble results as a shapefile for further analysis
+
+*This ensemble approach provides more robust results by averaging across multiple stochastic model runs.*
+
+## Setup
+
+```{python}
+# Analysis
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+
+# Visualization
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+import matplotlib.cm as cm
+from matplotlib.patches import Patch
+import seaborn as sns
+import colorsys
+
+# Model
+from src import Parcel, HeatEvent
+
+# Database
+import psycopg2
+from sqlalchemy import create_engine, text
+
+# Utils
+from tqdm.notebook import tqdm
+import os
+import time
+import tempfile
+import random
+import warnings
+```
+
+```{python}
+# Suppress all warnings
+warnings.filterwarnings('ignore')
+
+# Start time
+start_time = time.time()
+```
+
+```{python}
+# Set directories
+code_dir = r"~\hennepin\code\HeatRisk_ABM_Model"
+output_dir = r"~\hennepin\output"
+
+# Change to code directory
+os.chdir(code_dir)
+print(f"Current working directory: {os.getcwd()}")
+
+# Create output directory
+os.makedirs(output_dir, exist_ok=True)
+
+
+# Create all necessary directories
+directories_to_create = [
+    './results',
+    './figures',
+    '../../output',
+    '../../output/results'
+]
+
+for directory in directories_to_create:
+    os.makedirs(directory, exist_ok=True)
+    print(f"Created directory: {directory}")
+```
+
+## Run Model
+
+```{python}
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Configuration
+num_runs = 5  # Number of model runs in the ensemble
+temp_raster_original = r'~\hennepin\data\validate_data\intermediate\prism\tmax_hennepin_20240601_500m.tif'
+output_file = '../../output/results/final_result.shp'
+```
+
+```{python}
+
+new_temp_tif = r"~\hennepin\output\oneoff\parcel_temperatures_20240831.tif"
+num_threads = 5
+```
+
+```{python}
+# Initialize lists to store results from each run
+all_gdfs = []
+all_results = []
+
+# Execute the model multiple times
+print(f"Running model ensemble with {num_runs} iterations...")
+
+for run in tqdm(range(num_runs), desc="Model Runs"):
+    # Create a new model instance for each run
+    # The 100 value is a fallback temperature used only if raster sampling fails
+    heat_event = HeatEvent(100)
+    
+    # Run the simulation with the temperature raster as primary data source
+    heat_event.run_simulation(new_temp_tif)
+    heat_event.process_results()
+    
+    # Store the results
+    all_gdfs.append(heat_event.gdf.copy())
+    
+    # Collect summary statistics
+    run_results = {
+        'run': run + 1,
+        'total_parcels': len(heat_event.gdf)
+    }
+    
+    # Count 'stay' as 'stayed_home'
+    run_results['stayed_home'] = heat_event.gdf['decision'].value_counts().get('stay', 0)
+    
+    # Count everything except 'stay' as 'moved_to_cooling_center'
+    run_results['moved_to_cooling_center'] = len(heat_event.gdf) - run_results['stayed_home']
+    
+    # Calculate percentages
+    run_results['stayed_home_pct'] = (run_results['stayed_home'] / run_results['total_parcels']) * 100
+    run_results['moved_pct'] = (run_results['moved_to_cooling_center'] / run_results['total_parcels']) * 100
+    
+    all_results.append(run_results)
+```
+
+```{python}
+# Convert results to DataFrame for easier analysis
+results_df = pd.DataFrame(all_results)
+print("\nResults from individual runs:")
+print(results_df[['run', 'stayed_home_pct', 'moved_pct']].round(2))
+```
+
+## Calculate ensemble output of all runs
+
+```{python}
+# Calculate ensemble average results
+avg_results = {
+    'stayed_home_pct': results_df['stayed_home_pct'].mean(),
+    'moved_pct': results_df['moved_pct'].mean(),
+    'stayed_home_std': results_df['stayed_home_pct'].std(),
+    'moved_std': results_df['moved_pct'].std()
+}
+
+print("\nEnsemble average results:")
+print(f"Stayed home: {avg_results['stayed_home_pct']:.2f}% (±{avg_results['stayed_home_std']:.2f}%)")
+print(f"Moved to cooling center: {avg_results['moved_pct']:.2f}% (±{avg_results['moved_std']:.2f}%)")
+```
+
+```{python}
+# Create the ensemble GeoDataFrame by averaging probability values
+# First, ensure all GDFs have the same geometry and index
+base_gdf = all_gdfs[0]
+geom_col = base_gdf.geometry.name
+base_geom = base_gdf[geom_col]
+base_index = base_gdf.index
+
+# Create a new GeoDataFrame to hold ensemble results
+ensemble_gdf = gpd.GeoDataFrame(geometry=base_geom, index=base_index)
+
+# Copy the pid column
+ensemble_gdf['pid'] = base_gdf['pid']
+
+# For each parcel, calculate the average probability across all runs
+ensemble_gdf['proba'] = 0
+ensemble_gdf['decision'] = ''
+ensemble_gdf['cooling_center'] = ''  # Add cooling center column
+
+for gdf in all_gdfs:
+    ensemble_gdf['proba'] += gdf['proba'] / num_runs
+```
+
+```{python}
+# Determine final decision based on majority voting and track cooling centers
+decision_counts = {}
+cooling_center_counts = {}
+
+for idx in ensemble_gdf.index:
+    decision_counts[idx] = {'stay': 0, 'move': 0}
+    cooling_center_counts[idx] = {}  # Dictionary to track cooling center choices
+    
+    for gdf in all_gdfs:
+        decision = gdf.loc[idx, 'decision']
+        
+        if decision == 'stay':
+            decision_counts[idx]['stay'] += 1
+        else:
+            decision_counts[idx]['move'] += 1
+            
+            # Count occurrences of each cooling center
+            if decision not in cooling_center_counts[idx]:
+                cooling_center_counts[idx][decision] = 0
+            cooling_center_counts[idx][decision] += 1
+        
+for idx in ensemble_gdf.index:
+    # Set the final decision
+    if decision_counts[idx]['move'] > decision_counts[idx]['stay']:
+        ensemble_gdf.loc[idx, 'decision'] = 'move'
+        
+        # Find the most common cooling center for this parcel
+        if cooling_center_counts[idx]:  # If there are any cooling centers recorded
+            most_common_center = max(cooling_center_counts[idx].items(), 
+                                    key=lambda x: x[1])[0]
+            ensemble_gdf.loc[idx, 'cooling_center'] = most_common_center
+        else:
+            ensemble_gdf.loc[idx, 'cooling_center'] = 'None'
+    else:
+        ensemble_gdf.loc[idx, 'decision'] = 'stay'
+        ensemble_gdf.loc[idx, 'cooling_center'] = 'None'
+```
+
+```{python}
+ensemble_gdf
+```
+
+```{python}
+# Save the ensemble results as a shapefile
+# First ensure the output directory exists
+output_dir = os.path.dirname(output_file)
+os.makedirs(output_dir, exist_ok=True)
+
+try:
+    ensemble_gdf.to_file(output_file, driver='ESRI Shapefile')
+    print(f"\nEnsemble results saved to: {output_file}")
+except Exception as e:
+    # Fallback to local directory if the original path fails
+    local_output_file = './results/final_result.shp'
+    os.makedirs('./results', exist_ok=True)
+    ensemble_gdf.to_file(local_output_file, driver='ESRI Shapefile')
+    print(f"\nEnsemble results saved to: {local_output_file}")
+    print(f"Note: Original path failed ({e}), saved to local directory instead")
+```
+
+## Visualize
+
+```{python}
+# Visualize the ensemble probability distribution
+plt.figure(figsize=(10, 6))
+sns.histplot(ensemble_gdf['proba'], kde=True, bins=20, color='skyblue', 
+             edgecolor='black', alpha=0.7)
+plt.title('Distribution of Average Probability Values (Ensemble of 5 Runs)', fontsize=16)
+plt.xlabel('Probability', fontsize=14)
+plt.ylabel('Frequency', fontsize=14)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+# Visualize the ensemble spatial results
+plt.figure(figsize=(15, 10))
+ensemble_gdf.plot(column='proba', cmap='viridis', legend=True, 
+                 legend_kwds={'label': 'Probability of Moving to Cooling Center'},
+                 ax=plt.gca(), edgecolor=None, alpha=0.9)  # Remove edgecolor and increase alpha
+plt.title('Ensemble Results: Probability of Moving to Cooling Center', fontsize=16)
+plt.axis('equal')
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+# Create visualization with cooling center catchment areas and stay parcels
+stay_parcels = ensemble_gdf[ensemble_gdf['decision'] == 'stay'].copy()
+moved_parcels = ensemble_gdf[ensemble_gdf['decision'] == 'move'].copy()
+
+# Get unique cooling centers
+unique_centers = moved_parcels['cooling_center'].unique()
+print(f"Number of unique cooling centers: {len(unique_centers)}")
+
+# Create a random but consistent color mapping for all centers
+# Set a random seed for reproducibility
+np.random.seed(42)
+random.seed(42)
+
+# Generate a large list of distinct colors
+def generate_distinct_colors(n):
+    # Using HSV color space for more distinct colors
+    hsv_colors = []
+    for i in range(n):
+        h = i / n  # Evenly spaced hue
+        s = 0.7 + 0.3 * random.random()  # High saturation with some variation
+        v = 0.8 + 0.2 * random.random()  # High value with some variation
+        hsv_colors.append((h, s, v))
+    
+    # Convert HSV to RGB
+    rgb_colors = [colorsys.hsv_to_rgb(*color) for color in hsv_colors]
+    return rgb_colors
+
+# Generate distinct colors for all cooling centers
+colors = generate_distinct_colors(len(unique_centers))
+
+# Create a mapping of cooling centers to colors
+center_to_color = {center: colors[i] for i, center in enumerate(unique_centers)}
+
+# Add color column to moved_parcels
+moved_parcels['color_val'] = moved_parcels['cooling_center'].map(lambda x: center_to_color[x])
+
+# Create figure
+plt.figure(figsize=(15, 10))
+
+# First plot the stay parcels in gray to provide context
+if len(stay_parcels) > 0:
+    stay_parcels.plot(color='lightgray', ax=plt.gca(), 
+                     edgecolor=None, alpha=0.5,
+                     label='Stay home')
+    print(f"Number of parcels staying home: {len(stay_parcels)}")
+
+# Then plot each cooling center's "catchment area" separately
+for center in unique_centers:
+    # Get parcels going to this center
+    center_parcels = moved_parcels[moved_parcels['cooling_center'] == center]
+    
+    if len(center_parcels) > 0:
+        color = center_to_color[center]
+        # Plot these parcels with the center's color
+        center_parcels.plot(color=color, ax=plt.gca(), 
+                           edgecolor=None, alpha=0.7)
+
+# Set title and save
+plt.title('Cooling Center Catchment Areas (Gray areas represent parcels staying home)', fontsize=16)
+plt.axis('equal')
+plt.tight_layout()
+# Ensure figures directory exists before saving
+os.makedirs('./figures', exist_ok=True)
+plt.savefig('./figures/cooling_center_catchments.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# Print some statistics about the distribution
+center_counts = moved_parcels['cooling_center'].value_counts()
+print(f"Number of parcels moving to cooling centers: {len(moved_parcels)}")
+print(f"Top 10 cooling centers by usage:")
+print(center_counts.nlargest(10))
+```
+
+```{python}
+# Calculate stability of decisions across runs
+stability = {}
+for idx in ensemble_gdf.index:
+    decisions = [gdf.loc[idx, 'decision'] for gdf in all_gdfs]
+    most_common = max(set(decisions), key=decisions.count)
+    stability[idx] = decisions.count(most_common) / len(decisions)
+
+ensemble_gdf['stability'] = pd.Series(stability)
+
+# Visualize decision stability
+plt.figure(figsize=(15, 10))
+ensemble_gdf.plot(column='stability', cmap='RdYlGn', legend=True,
+                 legend_kwds={'label': 'Decision Stability Across Runs'},
+                 ax=plt.gca(), edgecolor=None, alpha=0.9)  # Remove edgecolor and increase alpha
+plt.title('Ensemble Results: Decision Stability Across 5 Runs', fontsize=16)
+plt.axis('equal')
+plt.tight_layout()
+plt.show()
+
+print("\nEnsemble Analysis Complete")
+```
+
+## Push final output to database
+
+```{python}
+import os
+# Set the output table name
+output_table = "model_final_results"
+
+# Database connection parameters
+DB_NAME = os.environ["PGDATABASE"]
+DB_USER = os.environ["PGUSER"]
+DB_PASSWORD = os.environ["PGPASSWORD"]
+DB_HOST = os.environ["PGHOST"]
+DB_PORT = os.environ["PGPORT"]
+```
+
+##### Push function
+
+```{python}
+def push_gdf_to_db_resilient(gdf, table_name, if_exists='replace', crs=26915, start_chunk=0):
+    """Resilient chunk-by-chunk import with resume capability"""
+    
+    # Prepare data - make a copy to avoid modifying the original
+    df_for_sql = gdf.copy()
+    
+    # Add WKT geometry column if not present
+    if 'geometry_wkt' not in df_for_sql.columns and 'geometry' in df_for_sql.columns:
+        print("Creating WKT geometry column...")
+        df_for_sql['geometry_wkt'] = df_for_sql['geometry'].apply(lambda x: x.wkt if x else None)
+    
+    # Drop geometry column for SQL import
+    if 'geometry' in df_for_sql.columns:
+        df_for_sql = df_for_sql.drop(columns=['geometry'])
+    
+    # Connect for initial setup
+    print("Initial connection for table setup...")
+    conn = psycopg2.connect(
+        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+        host=DB_HOST, port=DB_PORT
+    )
+    conn.autocommit = True
+    cursor = conn.cursor()
+    
+    try:
+        # Check if table exists and get row count
+        cursor.execute(f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '{table_name}')")
+        table_exists = cursor.fetchone()[0]
+        
+        # Create table if needed
+        if (if_exists == 'replace' or not table_exists):
+            print(f"Creating table {table_name}...")
+            cursor.execute(f"DROP TABLE IF EXISTS {table_name};")
+            
+            # Generate column definitions
+            columns = []
+            for col_name, dtype in df_for_sql.dtypes.items():
+                if 'int' in str(dtype):
+                    columns.append(f"{col_name} BIGINT")
+                elif 'float' in str(dtype):
+                    columns.append(f"{col_name} DOUBLE PRECISION")
+                else:
+                    columns.append(f"{col_name} TEXT")
+            
+            cursor.execute(f"CREATE TABLE {table_name} ({', '.join(columns)});")
+            current_rows = 0
+        else:
+            # Get current row count to determine where to start
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+            current_rows = cursor.fetchone()[0]
+            print(f"Table exists with {current_rows} rows")
+        
+        # Close setup connection
+        cursor.close()
+        conn.close()
+        
+        # Import in chunks with retry logic
+        chunk_size = 5000
+        total_rows = len(df_for_sql)
+        total_chunks = (total_rows + chunk_size - 1) // chunk_size
+        
+        # Determine starting chunk based on current rows or parameter
+        start_from_chunk = max(start_chunk, current_rows // chunk_size)
+        
+        print(f"Processing {total_rows} rows in chunks of {chunk_size}...")
+        print(f"Starting from chunk {start_from_chunk + 1} of {total_chunks}")
+        
+        for chunk_num in range(start_from_chunk, total_chunks):
+            i = chunk_num * chunk_size
+            end_idx = min(i + chunk_size, total_rows)
+            
+            # Retry logic for each chunk
+            max_retries = 3
+            retry_count = 0
+            success = False
+            
+            while not success and retry_count < max_retries:
+                try:
+                    print(f"Processing chunk {chunk_num + 1} of {total_chunks} (rows {i}-{end_idx-1})...")
+                    
+                    # Get chunk
+                    chunk = df_for_sql.iloc[i:end_idx]
+                    
+                    # Create temp file
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+                    temp_file_path = temp_file.name
+                    temp_file.close()
+                    
+                    # Write chunk to file
+                    chunk.to_csv(temp_file_path, index=False, header=False, sep='\t', na_rep='\\N')
+                    
+                    # Fresh connection for this chunk
+                    chunk_conn = psycopg2.connect(
+                        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+                        host=DB_HOST, port=DB_PORT
+                    )
+                    chunk_conn.autocommit = True
+                    chunk_cursor = chunk_conn.cursor()
+                    
+                    # Copy data
+                    with open(temp_file_path, 'r') as f:
+                        chunk_cursor.copy_from(f, table_name, sep='\t', null='\\N')
+                    
+                    # Close chunk connection
+                    chunk_cursor.close()
+                    chunk_conn.close()
+                    
+                    # Remove temp file
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                    
+                    print(f"Chunk {chunk_num + 1} imported successfully")
+                    success = True
+                    
+                except Exception as e:
+                    retry_count += 1
+                    print(f"Error on chunk {chunk_num + 1}: {str(e)}")
+                    print(f"Retry {retry_count} of {max_retries}")
+                    
+                    # Clean up
+                    if os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                    
+                    if retry_count < max_retries:
+                        wait_time = 5 * retry_count  # Increasing wait time
+                        print(f"Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"Failed to import chunk after {max_retries} attempts.")
+                        print(f"Last successful chunk: {chunk_num}")
+                        print(f"To resume, call this function with start_chunk={chunk_num + 1}")
+                        return False
+        
+        # Process geometry with fresh connection
+        if 'geometry_wkt' in df_for_sql.columns:
+            print("Updating geometry...")
+            geom_conn = psycopg2.connect(
+                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+                host=DB_HOST, port=DB_PORT
+            )
+            geom_conn.autocommit = True
+            geom_cursor = geom_conn.cursor()
+            
+            # Add geometry column if it doesn't exist
+            geom_cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS geometry geometry;")
+            
+            # Update in batches
+            print("Updating geometry column in batches...")
+            geom_batch_size = 5000
+            
+            try:
+                # Get count of NULL geometries
+                geom_cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE geometry IS NULL")
+                null_geoms = geom_cursor.fetchone()[0]
+                
+                while null_geoms > 0:
+                    print(f"Updating {min(geom_batch_size, null_geoms)} geometry records...")
+                    
+                    geom_cursor.execute(f"""
+                        UPDATE {table_name} 
+                        SET geometry = ST_GeomFromText(geometry_wkt, {crs})
+                        WHERE ctid IN (
+                            SELECT ctid FROM {table_name} 
+                            WHERE geometry IS NULL
+                            LIMIT {geom_batch_size}
+                        );
+                    """)
+                    
+                    # Check how many NULL geometries remain
+                    geom_cursor.execute(f"SELECT COUNT(*) FROM {table_name} WHERE geometry IS NULL")
+                    null_geoms = geom_cursor.fetchone()[0]
+                    print(f"{null_geoms} geometry records remaining")
+                
+                # Add spatial index for better query performance
+                print("Creating spatial index...")
+                index_name = f"{table_name}_geom_idx"
+                geom_cursor.execute(f"""
+                CREATE INDEX IF NOT EXISTS {index_name}
+                ON {table_name} USING GIST (geometry);
+                """)
+                
+                print(f"Spatial index {index_name} created.")
+            
+            except Exception as geom_error:
+                print(f"Error updating geometry: {str(geom_error)}")
+                print("Data was imported, but geometry conversion failed.")
+                return False
+            finally:
+                geom_cursor.close()
+                geom_conn.close()
+        
+        print(f"Successfully created {table_name} with {total_rows} rows!")
+        return True
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        print("Process completed")
+```
+
+##### Push to database
+
+```{python}
+# Prepare the ensemble GeoDataFrame for export
+# Make sure we have the right geometry column name and EPSG code
+ensemble_export = ensemble_gdf.copy()
+
+# Set the coordinate reference system if not already set
+# NAD83 / UTM zone 15N - EPSG:26915
+if ensemble_export.crs is None or ensemble_export.crs.to_epsg() != 26915:
+    print("Setting CRS to EPSG:26915 (NAD83 / UTM zone 15N)")
+    ensemble_export = ensemble_export.set_crs(epsg=26915, allow_override=True)
+
+# Add timestamp column to track when this ensemble was created
+ensemble_export['created_at'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+
+# Add metadata about the ensemble
+ensemble_export['num_runs'] = num_runs
+ensemble_export['avg_moved_pct'] = avg_results['moved_pct']
+ensemble_export['moved_std'] = avg_results['moved_std']
+```
+
+```{python}
+# Export to PostGIS
+success = push_gdf_to_db_resilient(ensemble_export, output_table)
+
+print(f"Exporting results to geodatabase")
+
+if success:
+    print(f"\nExport complete. Data available in PostgreSQL table: {output_table}")
+else:
+    print("\nExport failed. Check database connection parameters and try again.")
+```
+
+## Time
+
+```{python}
+# Calculate execution time
+end_time = time.time()
+elapsed_time = end_time - start_time
+print(f"\nTotal execution time: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
+```
+

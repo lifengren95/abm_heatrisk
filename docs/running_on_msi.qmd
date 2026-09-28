@@ -1,0 +1,213 @@
+# Running Heat Risk Model on MSI - SLURM Batch Job Guide
+
+This guide documents the process of running the chunk-parallel heat risk model on Minnesota Supercomputing Institute (MSI) systems using SLURM batch jobs.
+
+## Prerequisites
+
+- MSI account with access to compute resources
+- Project files uploaded to MSI (code, data, output directories)
+- SSH access to MSI login nodes
+
+## Step 1: Access MSI
+
+Connect to MSI via SSH:
+```bash
+ssh username@login.msi.umn.edu
+```
+
+Or use [MSI Open OnDemand](https://ondemand.msi.umn.edu) for web-based terminal access.
+
+## Step 2: Set Up Project Structure
+
+Create and organize your project directories:
+```bash
+cd ~
+mkdir -p hennipin_heat/{code,data,output,logs}
+
+# Directory structure:
+# hennipin_heat/
+# ├── code/
+# │   └── HeatRisk_ABM_Model/
+# │       ├── run_heat_risk_model_msi_07232025.py
+# │       ├── slurm_submit_heat_risk_model_07232025.slurm
+# │       ├── src/
+# │       └── requirements_msi.txt
+# ├── data/
+# │   ├── validate_data/
+# │   │   └── intermediate/
+# │   │       └── prism/
+# │   └── raw/
+# │       └── Parcel_AC/
+# ├── output/
+# │   └── results/
+# └── logs/
+```
+
+## Step 3: Upload Project Files
+
+Transfer files to MSI using one of these methods:
+
+### Option A: Using scp/rsync from local machine
+```bash
+# From your local machine:
+rsync -avz /path/to/local/HeatRisk_ABM_Model/ username@login.msi.umn.edu:~/hennipin_heat/code/HeatRisk_ABM_Model/
+```
+
+### Option B: Using Open OnDemand File Browser
+1. Navigate to [MSI Open OnDemand](https://ondemand.msi.umn.edu)
+2. Click **Files** → **Home Directory**
+3. Navigate to your project folder and upload files
+
+## Step 4: Set Up Python Environment (One-Time Setup)
+
+```bash
+# Navigate to project directory
+cd ~/hennipin_heat/code/HeatRisk_ABM_Model
+
+# Load Python module
+module load python3/3.10.9_anaconda2023.03_libmamba
+
+# Create virtual environment
+python -m venv heat_env
+
+# Activate environment
+source heat_env/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+```
+
+## Step 5: Install Dependencies
+
+Install packages in the correct order for compatibility:
+
+```bash
+# Install numpy first (specific version for pickle compatibility)
+pip install numpy==1.26.4
+
+# Install pandas
+pip install pandas==2.0.3
+
+# Install geospatial packages
+pip install geopandas==0.13.2
+pip install rasterio==1.3.8
+
+# Install other dependencies
+pip install psutil tqdm matplotlib
+pip install psycopg2-binary==2.9.10
+pip install seaborn==0.13.2
+pip install scipy==1.15.3
+```
+
+**Note**: Refer to `requirements_msi.txt` for the complete list of tested compatible versions.
+
+## Step 6: Submit SLURM Job
+
+### Single Date Test Run
+For testing with a single date:
+```bash
+# Edit the SLURM script to set array to single job
+# Change: #SBATCH --array=0-367
+# To:     #SBATCH --array=0
+
+sbatch slurm_submit_heat_risk_model_07232025.slurm
+```
+
+### Full Production Run
+For processing all 368 dates (2020-2024 heat season):
+```bash
+# Submit array job for all dates
+sbatch slurm_submit_heat_risk_model_07232025.slurm
+```
+
+This will submit 368 separate jobs, each processing one date with 1000 simulation runs.
+
+## Step 7: Monitor Jobs
+
+Check job status:
+```bash
+# View your jobs
+squeue -u $USER
+
+# View detailed job info
+scontrol show job <job_id>
+
+# Check job efficiency after completion
+seff <job_id>
+```
+
+## Expected Output
+
+Each job will:
+1. Load preprocessed parcel data (~400k parcels)
+2. Process one specific date from the configuration
+3. Run 1000 simulations using 30 parallel workers (keeping 2 cores for system)
+4. Save results to `~/hennipin_heat/output/results/trial_prod_job<array_id>/`
+
+### Output Files Per Date
+- `ensemble_YYYYMMDD.shp` - Shapefile with parcel results
+- `ensemble_summary_YYYYMMDD.csv` - Summary statistics
+- `run_statistics_YYYYMMDD.csv` - Individual run statistics  
+- `metadata_YYYYMMDD.json` - Processing metadata
+- `combined_summary_all_dates.csv` - Combined results (after all dates processed)
+
+## SLURM Configuration Details
+
+The production SLURM script uses:
+- **Partition**: msismall
+- **Nodes**: 1 per job
+- **Cores**: 32 per job
+- **Memory**: 128GB per job  
+- **Time limit**: 48 hours per job
+- **Array size**: 368 jobs (indices 0-367)
+- **Temp storage**: 50GB
+
+## Performance Notes
+
+- Each date with 1000 runs takes approximately 24-48 hours (including queue time)
+- The model uses 30 parallel workers per job (reserving 2 cores for system overhead)
+- Memory usage: ~200MB base + additional for parallel processing
+- Total expected runtime for all dates: 2-3 days with array job parallelization
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+**Job fails immediately**
+- Check error log: `cat ~/hennipin_heat/logs/heat_32c_*.err`
+- Verify environment activation in SLURM script
+- Ensure all data files are accessible
+
+**Module/Package not found**
+- Ensure virtual environment is activated
+- Reinstall packages with correct versions
+- Check numpy version compatibility (must be 1.26.4)
+
+**Memory errors**
+- Increase memory allocation: `#SBATCH --mem=256G`
+- Reduce number of parallel workers in the Python script
+
+**Timeout issues**
+- Increase time limit: `#SBATCH --time=96:00:00`
+- Check if specific dates are problematic
+
+**Array job management**
+- Cancel all array jobs: `scancel <job_id>`
+- Cancel specific array task: `scancel <job_id>_<array_index>`
+- Rerun failed tasks only: Check logs and resubmit with adjusted array indices
+
+## Post-Processing
+
+After all jobs complete, combine results:
+```bash
+cd ~/hennipin_heat/code/HeatRisk_ABM_Model
+python oneoff/msi_results_organize_01_files_folder.py
+python oneoff/msi_results_organize_02_alldates_summary_append.py
+python oneoff/msi_results_organize_03_sim_cool_visits_by_date.py
+```
+
+## Support
+
+For MSI-specific issues, contact: help@msi.umn.edu
+
+For model-specific questions, refer to the project documentation or contact the development team.

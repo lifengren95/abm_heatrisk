@@ -1,0 +1,154 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.2
+  kernelspec:
+    display_name: rcp_heat
+    language: python
+    name: python3
+---
+
+```{python}
+import arcpy
+from arcpy import env, mp
+from arcpy.sa import *
+import pandas as pd
+import requests
+import os
+import zipfile
+import numpy as np
+
+dem_url = r'https://resources.gisdata.mn.gov/pub/gdrs/data/pub/us_mn_state_dnr/elev_30m_digital_elevation_model/fgdb_elev_30m_digital_elevation_model.zip'
+out_dir = r'./data/qaqc'
+  
+output_crs = arcpy.SpatialReference(26915)
+output_dem = os.path.join(out_dir, 'reprojected_dem.tif')
+```
+
+```{python}
+def download_dem(url, save_path):
+    response = requests.get(url, stream=True)
+    if response.status_code == 200:
+        with open(save_path, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=1024):
+                file.write(chunk)
+        print(f"Downloaded: {save_path}")
+    else:
+        print(f"Failed to download: {url}")
+    with zipfile.ZipFile(save_path, 'r') as zip_ref:
+        zip_ref.extractall(os.path.join(out_dir, 'dem'))
+
+def crs_qa_step(dem, output_dem):
+    desc = arcpy.Describe(dem)
+    current_crs = desc.spatialReference
+
+    # Check if the CRS is the desired one
+    if current_crs.name != output_crs.name:  # Check using the CRS name
+        print(f"Reprojecting {dem} from {current_crs.name} to {output_crs.name}")
+        # Reproject the raster
+        arcpy.management.ProjectRaster(dem, output_dem, output_crs)
+    else:
+        print(f"{dem} is already in the desired CRS ({output_crs.name})")
+```
+
+```{python}
+# Download the .tif file
+download_dem(dem_url, os.path.join(out_dir, 'dem.zip'))
+dem_path = os.path.join(out_dir, r'dem', 'elev_30m_digital_elevation_model.gdb', r'digital_elevation_model_30m')
+```
+
+```{python}
+crs_qa_step(dem_path, output_dem)
+```
+
+```{python}
+# Access the active project and map
+aprx = arcpy.mp.ArcGISProject("CURRENT")
+m = aprx.listMaps()[0]
+
+# Add the dem to map
+dem_layer = m.addDataFromPath(dem_path)
+print(f"Added {dem_path} to the map as a layer.")
+```
+
+```{python}
+# QAQC Location
+
+# Define Minnesota's geographical extent in NAD83 UTM Zone 15N
+minnesota_extent = {
+    "xmin": 134000,  # Adjusted to appropriate values for Minnesota
+    "ymin": 4800000,
+    "xmax": 770000,
+    "ymax": 5480000,
+    "spatial_ref": arcpy.SpatialReference(26915)  # NAD83 UTM Zone 15N
+}
+
+# Function to QAQC the DEMs extent
+def validate_dem(dem, extent):
+    # Describe the DEM
+    desc = arcpy.Describe(dem)
+    dem_extent = desc.extent
+    dem_crs = desc.spatialReference
+
+    # Check extent
+    within_extent = (
+        dem_extent.XMin >= extent["xmin"]
+        and dem_extent.YMin >= extent["ymin"]
+        and dem_extent.XMax <= extent["xmax"]
+        and dem_extent.YMax <= extent["ymax"]
+    )
+
+    if within_extent:
+        print("DEM is within the expected Minnesota bounds.")
+    else:
+        print("DEM is outside the expected Minnesota bounds!")
+        print(f"Expected bounds: {extent}")
+        print(f"DEM bounds: XMin={dem_extent.XMin}, YMin={dem_extent.YMin}, XMax={dem_extent.XMax}, YMax={dem_extent.YMax}")
+
+# Run the QA/QC
+validate_dem(dem_path, minnesota_extent)
+```
+
+```{python}
+# QAQC Completeness
+
+# Ensure Spatial Analyst extension is enabled
+arcpy.CheckOutExtension("Spatial")
+
+# Function to check for completeness, including the VALUE field check
+def check_completeness_with_values(dem):
+    # Create a raster object
+    raster = arcpy.Raster(dem)
+    
+    # Ensure all cells in the VALUE field have non-zero values
+    print("Checking the VALUE field for completeness and non-zero entries...")
+    has_zero_values = False
+    with arcpy.da.SearchCursor(dem, ["VALUE", "COUNT"]) as cursor:
+        for row in cursor:
+            value, count = row[0], row[1]
+            if value == 0:
+                print(f"Warning: Found a 0 value in the VALUE field with {count} cells.")
+                has_zero_values = True
+            elif count is None or count == 0:
+                print(f"Warning: VALUE {value} has no associated cells.")
+
+    if not has_zero_values:
+        print("All values in the VALUE field are valid and non-zero.")
+    else:
+        print("Some 0 values or incomplete entries were found in the VALUE field.")
+
+    # Calculate the total number of cells in the DEM
+    total_cells = raster.width * raster.height
+
+    # Report results
+    print(f"Total cells in DEM: {total_cells}")
+    print(f"Value field validation complete.")
+
+# Run the completeness and value check
+check_completeness_with_values(dem_path)
+```
+

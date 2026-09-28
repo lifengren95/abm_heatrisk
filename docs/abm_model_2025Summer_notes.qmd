@@ -1,0 +1,755 @@
+---
+title: "Heat Risk ABM Model - Summer 2025 Development Notes"
+author: Project contributors
+date: 2025-08-27
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: cosmo
+---
+
+# Overview
+
+This document provides comprehensive documentation for the Heat Risk Agent-Based Model (ABM) developed in Summer 2025. The model simulates resident behavior during extreme heat events in Hennepin County, Minnesota, predicting whether individuals stay home or move to cooling centers.
+
+## Key Improvements in 2025 Version
+
+- **Parallel chunk processing** for improved performance
+- **External AC data integration** from market-based sources
+- **SLURM array job support** for MSI supercomputing
+- **Preprocessed data pipeline** eliminating database dependencies
+- **PRISM temperature data integration** for accurate heat modeling
+- **Comprehensive validation framework** against real-world visitation data
+
+# Input Data
+
+## Core Datasets
+
+### 1. Parcel Data
+- **Source**: Hennepin County parcel dataset (~400,000 parcels)
+- **Format**: PostGIS database or preprocessed pickle file
+- **Key fields**:
+  - `pid`: Parcel ID
+  - `geometry`: Parcel boundaries
+  - `medianhhi`: Median household income
+  - `age` demographics: `ageunder18`, `age18_39`, `age40_64`, `age65up`
+  - `poptotal`: Total population
+  - `block_group_id`: Census block group identifier
+
+### 2. Temperature Data (PRISM)
+- **Source**: PRISM Climate Group, Oregon State University
+- **Resolution**: 800m or 4km grid
+- **Coverage**: May 1 - September 30 for years 2020, 2021, 2023, 2024
+- **Variables**: `tmax`, `tmin`, `tmean` (maximum, minimum, mean temperature)
+- **Format**: GeoTIFF rasters in Celsius (converted to Fahrenheit)
+
+### 3. Air Conditioning Data
+- **External source**: `data/raw/Parcel_AC/hennepin_parcel_ac_avail.csv`
+- **Fields**: `pid`, `ac_available` (market-based AC availability)
+- **Coverage**: 346,704 parcels with external AC data
+- **Fallback**: Census-based AC probability model
+
+### 4. Cooling Centers
+- **Source**: Validated cooling center locations
+- **Fields**: `name`, `geometry`, `type`, `validate_tag`
+- **Special tags**: Libraries, cooling centers, emergency departments
+
+## Data Preprocessing
+
+### Parcel Data Extraction (`01_save_parcels_from_db.py`)
+
+The model uses preprocessed parcel data stored as a pickle file to avoid repeated database queries:
+
+```python
+# Creates: data/preprocessed_data/parcels_prepared.pkl
+# Contains: GeoDataFrame with all parcel attributes
+# Size: ~200MB
+# Load time: <1 second vs 30+ seconds from database
+```
+
+**Key features of preprocessing**:
+- Extracts parcels with all demographic attributes
+- Calculates nearest cooling centers for each parcel
+- Stores cooling center distances
+- Preserves geometry for spatial operations
+- Includes metadata with extraction timestamp and version
+
+**Why use pickle files?**
+- **Speed**: 30x faster loading than database queries
+- **Portability**: No database credentials needed
+- **Consistency**: Same data across all runs
+- **MSI compatibility**: Works on compute nodes without database access
+
+# PRISM Temperature Data
+
+## Download Process (`oneoff/download_prism_data.py`)
+
+Downloads daily temperature data from PRISM FTP server:
+
+```python
+# Configuration
+YEARS_TO_DOWNLOAD = [2020, 2021, 2023, 2024]
+MAX_WORKERS = 8  # Parallel download threads
+
+# Downloads to: data/raw/prism/
+# File format: tmax_prism_YYYYMMDD_800m.tif
+```
+
+**Download specifications**:
+- **Protocol**: FTP (ftp.prism.oregonstate.edu)
+- **Data type**: Daily gridded climate data
+- **Coverage**: Continental US (CONUS)
+- **Format**: BIL format in ZIP archives, extracted to GeoTIFF
+
+## Processing Pipeline (`oneoff/02_process_prism_raw_to_intermediate_prism.py`)
+
+Processes raw PRISM data for model consumption:
+
+```python
+# Input: data/raw/prism/tmax_prism_YYYYMMDD_800m.tif
+# Output: data/validate_data/intermediate/prism/tmax_hennepin_YYYYMMDD_500m.tif
+```
+
+**Processing steps**:
+1. **Reprojection**: Convert to EPSG:26915 (UTM Zone 15N)
+2. **Resampling**: Resample to 500m resolution matching reference raster
+3. **Clipping**: Crop to Hennepin County boundaries
+4. **Unit conversion**: Convert Celsius to Fahrenheit
+5. **Validation**: Verify output matches reference specifications
+
+# Main Execution Scripts
+
+## Local Execution: `run_heat_risk_model_new_ac_data_parallel.py`
+
+The primary script for local execution with full parallel processing capabilities:
+
+### Key Components
+
+```python
+class ChunkParallelHeatModel:
+    """Main model class with chunk-based parallelization"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.external_ac_lookup = load_external_ac_data()
+        self.parcels_data = self.load_preprocessed_parcels()
+```
+
+### Configuration Structure
+
+```python
+config = {
+    'num_runs': 1000,        # Simulations per date
+    'max_workers': 30,       # Parallel chunks
+    'temp_dir': "../../data/validate_data/intermediate/prism",
+    'dates': ['20240601', '20240701'],  # Dates to process
+    'use_external_ac': True  # Use market-based AC data
+}
+```
+
+### Parallel Processing Architecture
+
+The model divides parcels into chunks for parallel processing:
+
+```python
+# 400,000 parcels ÷ 30 workers = ~13,333 parcels per chunk
+# Each chunk processes independently
+# Results merged after completion
+```
+
+**Process flow**:
+1. Load preprocessed parcel data
+2. Extract temperatures from PRISM raster
+3. Split parcels into chunks
+4. Process chunks in parallel using ProcessPoolExecutor
+5. Aggregate results across chunks
+6. Repeat for multiple runs (ensemble approach)
+7. Calculate statistics and save outputs
+
+## MSI Execution: `run_heat_risk_model_msi_07232025.py`
+
+Optimized version for Minnesota Supercomputing Institute:
+
+### Key Differences from Local Version
+
+- **SLURM integration**: Reads `SLURM_ARRAY_TASK_ID` from environment
+- **Single date processing**: Each job processes one date
+- **Production configuration**: Hardcoded 1000 runs
+- **Memory optimization**: Garbage collection after each date
+- **Robust error handling**: Continues on individual date failures
+
+### SLURM Array Job Configuration
+
+```bash
+#SBATCH --array=0-367        # 368 total dates
+#SBATCH --ntasks=32          # 32 cores per job
+#SBATCH --mem=128G           # 128GB memory
+#SBATCH --time=48:00:00      # 48 hour limit
+```
+
+### Date Mapping
+
+```python
+# Array index 0-30: July 2020 (31 days)
+# Array index 31-61: July 2021 (31 days)
+# Array index 62-214: May-Sept 2023 (153 days)
+# Array index 215-367: May-Sept 2024 (153 days)
+```
+
+# Improvements Over Original Model
+
+## Original: `Model_final_LR_edit_adapt_from_ipynb.qmd`
+
+**Limitations**:
+- Sequential processing (5-10 minutes per run)
+- Database dependency for each run
+- Limited to 5 ensemble runs
+- Manual temperature raster selection
+- No external AC data integration
+
+## New Model Improvements
+
+### 1. Performance Enhancements
+- **30x faster**: Parallel chunk processing
+- **Preprocessed data**: Eliminate database overhead
+- **Batch processing**: Multiple dates in single execution
+- **Memory efficient**: Streaming results to disk
+
+### 2. Data Integration
+- **External AC data**: Market-based AC availability
+- **PRISM integration**: Automated temperature data pipeline
+- **Validation framework**: Compare against real visitation
+
+### 3. Scalability
+- **SLURM support**: Process 368 dates simultaneously
+- **Configurable workers**: Scale from laptop to HPC
+- **Ensemble size**: 1000 runs vs 5 runs
+
+### 4. Output Quality
+- **Comprehensive statistics**: Per-run and ensemble metrics
+- **Multiple formats**: Shapefile, CSV, JSON metadata
+- **Organized structure**: Year/date folder hierarchy
+
+# Results Visualization
+
+## Primary Visualization: `run_model_results_visualization_dates.py`
+
+Creates comprehensive visualizations of model outputs:
+
+### Visualization Types
+
+1. **Movement Probability Maps**
+   - Choropleth maps showing probability of movement
+   - Color scale: Blue (low) to Red (high probability)
+   - Census tract aggregation for clarity
+
+2. **Cooling Center Choice Maps**
+   - Shows which cooling center each parcel chose
+   - Color-coded by destination
+   - Includes center locations as points
+
+3. **Decision Stability Analysis**
+   - Histogram of decision consistency across runs
+   - Identifies areas with uncertain outcomes
+   - Spatial map of stability scores
+
+4. **Temperature Distribution**
+   - Histogram of parcel temperatures
+   - Relationship between temperature and movement
+   - Spatial temperature patterns
+
+### Usage
+
+```python
+# Visualize specific dates
+python run_model_results_visualization_dates.py \
+    --dates 20240601 20240701 \
+    --output-dir ../../output/visualizations
+```
+
+# MSI Results Organization
+
+After running models on MSI, three organization scripts process the distributed outputs:
+
+## 1. File Organization (`oneoff/msi_results_organize_01_files_folder.py`)
+
+Reorganizes MSI job outputs into year-based structure:
+
+```python
+# Input structure:
+# msi_runs_07262025/
+#   ├── trial_*_prod_job0/20200701/
+#   ├── trial_*_prod_job1/20200702/
+#   └── ...
+
+# Output structure:
+# geometric_model_1000runs/
+#   ├── 2020/
+#   │   ├── 20200701/
+#   │   └── 20200702/
+#   ├── 2021/
+#   └── ...
+```
+
+## 2. Summary Aggregation (`oneoff/msi_results_organize_02_alldates_summary_append.py`)
+
+Combines individual date summaries:
+
+```python
+# Reads: 368 individual combined_summary_all_dates.csv files
+# Creates:
+#   - combined_summary_all_years.csv (all dates)
+#   - YYYY/combined_summary_all_dates.csv (per year)
+#   - README files with statistics
+```
+
+## 3. Cooling Center Visits (`oneoff/msi_results_organize_03_sim_cool_visits_by_date.py`)
+
+Extracts cooling center visitation patterns:
+
+```python
+# Processes ensemble_summary_YYYYMMDD.csv files
+# Creates: cooling_center_visits_by_date.csv
+# Contains: Daily visits per cooling center from simulations
+```
+
+# Validation Framework
+
+## Overview
+
+The validation framework compares model predictions against real-world visitation data from three sources:
+
+1. **Library visits** (2024)
+2. **Cellphone mobility data** (2020)
+3. **Emergency department encounters** (2023-2024)
+
+## Validation Scripts
+
+### Library Validation: `run_validation_2024_library.py`
+
+Validates model predictions against actual library visitation data:
+
+```python
+class LibraryValidation2024:
+    """Compare simulated visits to actual library visits"""
+    
+    def __init__(self):
+        self.heat_dates = self.load_heat_dates()  # Official heat advisory days
+        self.library_data = self.load_library_visits()
+        self.ensemble_results = self.load_model_results()
+```
+
+**Key metrics**:
+- **Correlation**: Pearson correlation between predicted and actual visits
+- **RMSE**: Root mean square error
+- **Bias**: Systematic over/under-prediction
+- **Peak detection**: Ability to identify high-visitation days
+
+### Cellphone Validation: `run_validation_2020_cellphone.py`
+
+Validates using SafeGraph mobility patterns:
+
+```python
+# Data source: SafeGraph cellphone mobility data
+# Coverage: July 2020 (COVID-19 period)
+# Locations: Validated cooling centers
+
+# Key considerations:
+# - COVID-19 impacts on mobility patterns
+# - Reduced capacity at cooling centers
+# - Different demographic patterns
+```
+
+**Validation process**:
+1. Load ensemble results for July 2020
+2. Extract simulated visits per cooling center
+3. Compare with SafeGraph visit counts
+4. Separate heat vs non-heat days
+5. Calculate correlation metrics
+
+### Emergency Department Validation: `run_validation_2023_2024_ED.py`
+
+Validates against heat-related ED visits:
+
+```python
+# Data: Heat-related ICD codes from hospital records
+# Coverage: May-September 2023-2024
+# Metric: Daily ED encounters
+
+# Heat-related conditions:
+# - Heat exhaustion
+# - Heat stroke
+# - Dehydration
+# - Related complications
+```
+
+## Visualization of Validation Results
+
+### Library Visualization: `visualize_validate_2024_library.py`
+
+Creates comprehensive validation visualizations:
+
+```python
+def create_validation_plots():
+    """Generate validation analysis plots"""
+    
+    # 1. Scatter plot: Predicted vs Actual
+    # 2. Time series: Daily comparison
+    # 3. Spatial map: Performance by location
+    # 4. Residual analysis: Error patterns
+    # 5. Heat vs non-heat comparison
+```
+
+**Output plots**:
+- `scatter_predicted_vs_actual.png`: Correlation visualization
+- `timeseries_comparison.png`: Daily patterns
+- `spatial_performance_map.png`: Geographic accuracy
+- `residual_histogram.png`: Error distribution
+
+### Cellphone Visualization: `visualize_validate_2020_cellphone.py`
+
+Similar structure with COVID-19 adjustments:
+
+```python
+# Special considerations:
+# - Normalize for reduced overall mobility
+# - Account for capacity restrictions
+# - Compare relative patterns vs absolute numbers
+```
+
+# Detailed oneoff Scripts Documentation
+
+## Data Processing Scripts
+
+### `msi_results_organize_01_files_folder.py`
+
+**Purpose**: Reorganize MSI job outputs into logical year/date structure
+
+```python
+# Key functions:
+def organize_by_year(source_dir, dest_dir):
+    """Move date folders to year-based structure"""
+    
+    # Pattern matching: YYYYMMDD folders
+    # Destination: YYYY/YYYYMMDD/
+    # Preserves all contents
+```
+
+**Usage scenario**:
+- After MSI array jobs complete
+- Before running summary aggregation
+- Handles 368 job folders → 4 year folders
+
+### `msi_results_organize_02_alldates_summary_append.py`
+
+**Purpose**: Aggregate statistics across all dates
+
+```python
+def aggregate_summaries():
+    """Combine individual date summaries"""
+    
+    # Reads: combined_summary_all_dates.csv from each job
+    # Aggregates: Movement rates, temperature stats, stability
+    # Groups by: Year, month, heat advisory status
+```
+
+**Output structure**:
+```
+combined_summary_all_years.csv:
+- date, avg_temperature, moved_pct, stayed_home_pct
+- decision_stability, ac_external_pct, convergence_time
+- min_temp, max_temp, std_temp
+```
+
+### `msi_results_organize_03_sim_cool_visits_by_date.py`
+
+**Purpose**: Extract cooling center utilization patterns
+
+```python
+def extract_cooling_visits():
+    """Count visits per cooling center per date"""
+    
+    # Process: ensemble_summary_YYYYMMDD.csv files
+    # Extract: cooling_center column
+    # Aggregate: Visits per center per date
+```
+
+**Output format**:
+```csv
+date,cooling_center,simulated_visits,capacity_utilization
+20240601,"Brooklyn Park Library",1250,0.45
+20240601,"North Regional Library",890,0.62
+```
+
+## Figure Generation Scripts
+
+### `figures_report_and_slidedeck/figure_03_priority_map.py`
+
+Creates priority area maps for intervention:
+
+```python
+def create_priority_map():
+    """Generate heat vulnerability priority maps"""
+    
+    # Factors:
+    # - Income level (lower = higher priority)
+    # - Elderly population (higher = higher priority)
+    # - AC availability (lower = higher priority)
+    # - Distance to cooling (further = higher priority)
+    
+    # Weight scenarios:
+    # - Equal weights
+    # - AC-focused
+    # - Elderly-focused
+    # - Economic-focused
+```
+
+# Validate Folder Analysis Scripts
+
+## R Scripts for Statistical Analysis
+
+### `validate/analysis/reg_01_real_visitation_temp_covar.R`
+
+Regression analysis of temperature-visitation relationship:
+
+```r
+# Linear models with robust standard errors
+# Y = visits, X = temperature + controls
+
+# Model specifications:
+# 1. Simple: visits ~ temperature
+# 2. With controls: visits ~ temp + day_of_week + month
+# 3. Non-linear: visits ~ temp + temp^2
+# 4. Threshold: visits ~ I(temp > 90)
+
+# Output: Regression tables with coefficients and p-values
+```
+
+### `validate/analysis/summary_01_validation_data.R`
+
+Summary statistics of validation datasets:
+
+```r
+# Descriptive statistics by:
+# - Data source (library, cellphone, ED)
+# - Time period
+# - Location type
+# - Heat advisory status
+
+# Key metrics:
+# - Mean, median, SD of visits
+# - Peak visitation days
+# - Capacity utilization rates
+```
+
+## Python Analysis Scripts
+
+### `validate/analysis/merge_simulation_validation.py`
+
+Merges simulation outputs with validation data:
+
+```python
+def merge_datasets():
+    """Align simulation and validation data"""
+    
+    # Match by:
+    # - Date
+    # - Cooling center ID
+    # - Time of day (if available)
+    
+    # Handle:
+    # - Missing data
+    # - Name variations
+    # - Coordinate differences
+```
+
+### `validate/analysis/calculate_validation_metrics.py`
+
+Computes validation performance metrics:
+
+```python
+def calculate_metrics(predicted, actual):
+    """Calculate validation metrics"""
+    
+    return {
+        'rmse': root_mean_square_error(predicted, actual),
+        'mae': mean_absolute_error(predicted, actual),
+        'correlation': pearson_correlation(predicted, actual),
+        'bias': mean(predicted - actual),
+        'relative_error': mean(abs(predicted - actual) / actual),
+        'peak_accuracy': peak_detection_accuracy(predicted, actual)
+    }
+```
+
+# Output Folder Structure
+
+## Model Outputs
+
+```
+output/
+├── results/
+│   ├── trial_YYYYMMDD_HHMMSS/          # Individual model run
+│   │   ├── 20240601/                    # Date folder
+│   │   │   ├── ensemble_20240601.shp    # GIS shapefile
+│   │   │   ├── ensemble_summary_20240601.csv
+│   │   │   ├── run_statistics_20240601.csv
+│   │   │   └── metadata_20240601.json
+│   │   └── combined_summary_all_dates.csv
+│   │
+│   └── geometric_model_1000runs/        # MSI organized results
+│       ├── 2020/
+│       ├── 2021/
+│       ├── 2023/
+│       └── 2024/
+│
+├── validate/
+│   ├── validation_comparison_YYYYMMDD.csv
+│   ├── validation_statistics_YYYYMMDD.csv
+│   └── visualizations/
+│       ├── scatter_plots/
+│       ├── time_series/
+│       └── spatial_maps/
+│
+└── figures/
+    ├── priority_maps/
+    ├── temperature_distributions/
+    └── movement_patterns/
+```
+
+## Key Output Files
+
+### Ensemble Shapefile (`ensemble_YYYYMMDD.shp`)
+
+GeoDataFrame with parcel-level results:
+- `pid`: Parcel identifier
+- `geometry`: Parcel boundaries
+- `temperature`: Extracted temperature
+- `prob_move_mean`: Average movement probability
+- `decision_majority`: Final decision (stay/move)
+- `decision_stability`: Consistency across runs
+- `cooling_center`: Chosen destination if moving
+
+### Summary CSV (`ensemble_summary_YYYYMMDD.csv`)
+
+Detailed statistics per parcel:
+- All shapefile fields
+- `run_*_decision`: Individual run decisions
+- `run_*_probability`: Individual run probabilities
+- `convergence_iteration`: When decision stabilized
+- `ac_source`: External vs database
+
+### Run Statistics (`run_statistics_YYYYMMDD.csv`)
+
+Aggregate metrics per simulation run:
+- `run_id`: Simulation identifier
+- `parcels_moved`: Count of moving parcels
+- `parcels_stayed`: Count of staying parcels
+- `mean_probability`: Average movement probability
+- `processing_time`: Execution duration
+- `memory_usage`: Peak memory consumption
+
+### Metadata JSON (`metadata_YYYYMMDD.json`)
+
+Configuration and execution details:
+```json
+{
+    "date": "20240601",
+    "num_runs": 1000,
+    "num_workers": 30,
+    "temperature_source": "prism",
+    "ac_data_source": "external",
+    "processing_time_seconds": 1234.56,
+    "model_version": "2025_summer",
+    "parcels_processed": 399640,
+    "convergence_achieved": true
+}
+```
+
+# Performance Benchmarks
+
+## Local Execution
+
+**Hardware**: 32-core workstation, 128GB RAM
+
+| Metric | Original Model | New Parallel Model | Improvement |
+|--------|---------------|-------------------|-------------|
+| 1 run, 1 date | 5-10 minutes | 15 seconds | 20-40x |
+| 5 runs, 1 date | 25-50 minutes | 45 seconds | 33-66x |
+| 1000 runs, 1 date | Not feasible | 25 minutes | Enabled |
+
+## MSI Execution
+
+**Configuration**: 32 cores, 128GB RAM per node
+
+| Task | Duration | Throughput |
+|------|----------|------------|
+| 1000 runs, 1 date | 24-36 hours | ~30 runs/hour |
+| Full year (153 dates) | 48 hours/date | 153 parallel jobs |
+| Complete dataset (368 dates) | 2-3 days total | 368 parallel jobs |
+
+## Memory Usage
+
+| Component | Memory Usage |
+|-----------|-------------|
+| Preprocessed parcels | ~200 MB |
+| Temperature raster | ~50 MB |
+| Per-run results | ~150 MB |
+| Final ensemble | ~500 MB |
+| Peak total | ~2-3 GB |
+
+# Best Practices and Tips
+
+## Data Management
+
+1. **Always use preprocessed parcels** - Don't query database repeatedly
+2. **Process dates in batches** - Reduce I/O overhead
+3. **Clean up intermediate files** - Prevent disk space issues
+4. **Version control outputs** - Use timestamp folders
+
+## Performance Optimization
+
+1. **Chunk size tuning** - Balance between parallelism and overhead
+2. **Worker count** - Use n_cores - 2 for stability
+3. **Memory management** - Clear objects after processing
+4. **Disk I/O** - Use SSD for temporary files
+
+## Validation
+
+1. **Check convergence** - Ensure decisions stabilize
+2. **Verify temperatures** - Confirm Fahrenheit conversion
+3. **Validate AC data** - Check coverage percentage
+4. **Compare distributions** - Movement rates should be realistic
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue**: "Preprocessed parcels file not found"
+- **Solution**: Run `01_save_parcels_from_db.py` first
+
+**Issue**: "Temperature raster missing for date"
+- **Solution**: Check PRISM data download and processing
+
+**Issue**: "Memory error during parallel processing"
+- **Solution**: Reduce worker count or chunk size
+
+**Issue**: "SLURM job timeout"
+- **Solution**: Request more time or reduce runs per job
+
+### Debug Mode
+
+Enable detailed logging:
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# In config:
+config['debug'] = True
+config['verbose'] = True
+```
+
+---
+
+*This documentation reflects the model state as of Summer 2025. For updates, see the GitHub repository.*
